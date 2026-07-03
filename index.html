@@ -1107,6 +1107,17 @@ Olive Oil 25 ml"></textarea>
     <!-- TAB 4: CUSTOM FOOD -->
     <div class="tab-content" id="tab-custom">
       <div class="custom-food-form">
+        <div class="form-section" id="fi_section">
+          <div class="form-section-title">Import foods (label photos → Claude → here)</div>
+          <div style="font-size:11px;color:var(--text3);margin:-4px 0 8px;">Photograph nutrition labels, ask Claude to <em>"import these labels"</em>, then paste the JSON it gives you below (or choose the file it saved).</div>
+          <textarea class="form-input" id="fi_paste" rows="3" placeholder='Paste import JSON here — {"schema":"nutrisearch-food-import/1","foods":[...]} or a plain array of foods' style="width:100%;resize:vertical;font-family:monospace;font-size:10px;"></textarea>
+          <div style="display:flex;gap:8px;margin-top:6px;">
+            <button class="btn-primary" style="flex:1;" onclick="importFoodsFromPaste()">Preview import</button>
+            <button class="btn-secondary" style="flex:1;" onclick="document.getElementById('fi_file').click()">Choose file…</button>
+            <input id="fi_file" type="file" accept=".json,application/json" style="display:none;" onchange="importFoodsFromFile(this)">
+          </div>
+          <div id="fi_review" style="margin-top:8px;"></div>
+        </div>
         <div class="form-section">
           <div class="form-section-title">Food Identification</div>
           <div class="form-grid">
@@ -2955,6 +2966,143 @@ function importCustomFoods(input) {
     showToast(`Imported ${added} new food(s)`);
   };
   reader.readAsText(file); input.value = '';
+}
+
+// ════════════════════════════════════════════════
+// FOOD IMPORT PIPELINE (nutrisearch-food-import/1)
+// Accepts {schema:'nutrisearch-food-import/1', foods:[...]} or a bare array.
+// Validates row-by-row, previews dupes with per-food Skip/Replace/Keep-both,
+// then merges into customFoods.
+// ════════════════════════════════════════════════
+let pendingFoodImport = null;   // {newFoods:[], dupes:[{food, existing, action}], errors:[]}
+
+function normalizeImportFood(raw, idx, errors) {
+  if (!raw || typeof raw !== 'object') { errors.push(`Row ${idx+1}: not an object`); return null; }
+  if (!raw.name || !String(raw.name).trim()) { errors.push(`Row ${idx+1}: missing "name"`); return null; }
+  const f = {
+    name: String(raw.name).trim(),
+    cat: raw.cat || 'Packaged',
+    db: 'custom',
+    code: raw.code || ('PKG_' + String(raw.name).toLowerCase().replace(/[^a-z0-9]+/g,'_').replace(/^_|_$/g,'').slice(0,40)),
+    desc: raw.desc || '',
+  };
+  let bad = [];
+  NUTRIENT_KEYS.forEach(k => {
+    const v = raw[k];
+    if (v == null || v === '') { f[k] = 0; return; }
+    const n = parseFloat(v);
+    if (isNaN(n) || n < 0) { bad.push(k); f[k] = 0; } else f[k] = n;
+  });
+  if (bad.length) errors.push(`"${f.name}": non-numeric/negative ${bad.join(', ')} — set to 0`);
+  // serving metadata (map schema names → app fields, accept either)
+  const serv = parseFloat(raw.servingSize_g != null ? raw.servingSize_g : raw.serv);
+  if (!isNaN(serv) && serv > 0) f.serv = serv;
+  const sl = raw.servingLabel || raw.servLabel;
+  if (sl) f.servLabel = String(sl);
+  ['brand','barcode','basis','packSize','source','dateAdded'].forEach(k => { if (raw[k] != null && raw[k] !== '') f[k] = raw[k]; });
+  const spp = parseFloat(raw.servingsPerPack);
+  if (!isNaN(spp) && spp > 0) f.servingsPerPack = spp;
+  return f;
+}
+
+function importFoodsFromText(text) {
+  let parsed;
+  try { parsed = JSON.parse(text); } catch(err){ showToast('Invalid JSON — check the paste'); return; }
+  let list = Array.isArray(parsed) ? parsed : parsed && Array.isArray(parsed.foods) ? parsed.foods : null;
+  if (!list) { showToast('Expected {"foods":[...]} or a JSON array'); return; }
+  if (parsed.schema && !String(parsed.schema).startsWith('nutrisearch-food-import/')) {
+    showToast('Unknown schema "' + parsed.schema + '" — trying anyway');
+  }
+  loadCustomFoods();
+  const errors = [];
+  const newFoods = [], dupes = [];
+  list.forEach((raw, idx) => {
+    const f = normalizeImportFood(raw, idx, errors);
+    if (!f) return;
+    const existing = customFoods.find(x => x.code === f.code || (x.name||'').toLowerCase() === f.name.toLowerCase());
+    if (existing) dupes.push({food: f, existing, action: 'skip'});
+    else newFoods.push(f);
+  });
+  pendingFoodImport = { newFoods, dupes, errors };
+  renderImportReview();
+}
+
+function importFoodsFromPaste() {
+  const text = document.getElementById('fi_paste').value.trim();
+  if (!text) { showToast('Paste import JSON first'); return; }
+  importFoodsFromText(text);
+}
+
+function importFoodsFromFile(input) {
+  const file = input.files && input.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => importFoodsFromText(e.target.result);
+  reader.readAsText(file); input.value = '';
+}
+
+function renderImportReview() {
+  const box = document.getElementById('fi_review');
+  const p = pendingFoodImport;
+  if (!p) { box.innerHTML = ''; return; }
+  let html = '';
+  if (p.errors.length) {
+    html += `<div style="font-size:11px;color:var(--red,#c0392b);margin-bottom:6px;"><strong>${p.errors.length} issue(s):</strong><br>${p.errors.slice(0,8).map(e=>'· '+e).join('<br>')}${p.errors.length>8?'<br>…':''}</div>`;
+  }
+  html += `<div style="font-size:12px;margin-bottom:6px;"><strong>${p.newFoods.length}</strong> new food(s)` +
+          (p.dupes.length ? `, <strong>${p.dupes.length}</strong> duplicate(s):` : '.') + `</div>`;
+  if (p.newFoods.length) {
+    html += `<div style="font-size:11px;color:var(--text2);margin-bottom:6px;">${p.newFoods.slice(0,10).map(f=>'＋ '+f.name + (f.serv?` <span style="color:var(--text3)">(serve ${f.serv} g)</span>`:'')).join('<br>')}${p.newFoods.length>10?'<br>…':''}</div>`;
+  }
+  if (p.dupes.length) {
+    html += p.dupes.map((d,i) => `
+      <div style="display:flex;align-items:center;gap:6px;font-size:11px;margin-bottom:4px;">
+        <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="${d.food.name}">⚠ ${d.food.name}</span>
+        <select onchange="pendingFoodImport.dupes[${i}].action=this.value" style="font-size:10px;">
+          <option value="skip">Skip</option>
+          <option value="replace">Replace existing</option>
+          <option value="keep-both">Keep both</option>
+        </select>
+      </div>`).join('');
+  }
+  if (p.newFoods.length || p.dupes.length) {
+    html += `<div style="display:flex;gap:8px;margin-top:8px;">
+      <button class="btn-primary" style="flex:1;" onclick="commitFoodImport()">Import now</button>
+      <button class="btn-secondary" style="flex:1;" onclick="pendingFoodImport=null;renderImportReview()">Cancel</button>
+    </div>`;
+  } else if (!p.errors.length) {
+    html += `<div style="font-size:11px;color:var(--text3);">Nothing to import.</div>`;
+  }
+  box.innerHTML = html;
+}
+
+function commitFoodImport() {
+  const p = pendingFoodImport;
+  if (!p) return;
+  loadCustomFoods();
+  let added = 0, replaced = 0;
+  p.newFoods.forEach(f => { customFoods.push(f); added++; });
+  p.dupes.forEach(d => {
+    if (d.action === 'replace') {
+      const i = customFoods.findIndex(x => x.code === d.existing.code || (x.name||'').toLowerCase() === d.existing.name.toLowerCase());
+      if (i >= 0) { customFoods[i] = d.food; replaced++; }
+    } else if (d.action === 'keep-both') {
+      d.food.code = d.food.code + '_' + Math.random().toString(36).slice(2,6);
+      d.food.name = d.food.name + ' (2)';
+      customFoods.push(d.food); added++;
+    }
+  });
+  if (!persistCustomFoodsSafe()) return;
+  pendingFoodImport = null;
+  renderImportReview();
+  document.getElementById('fi_paste').value = '';
+  updateCustomFoodList();
+  showToast(`Imported ${added} food(s)` + (replaced ? `, replaced ${replaced}` : ''));
+}
+
+function persistCustomFoodsSafe() {
+  const ok = nsSave('ns_custom_foods', customFoods);
+  if (!ok) loadCustomFoods();  // roll back in-memory state on quota failure
+  return ok;
 }
 
 function cfRefSearch() {
