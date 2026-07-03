@@ -1044,7 +1044,17 @@
             </div>
           </div>
         </div>
-                <div class="field-group" style="margin:2px 0 12px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
+        <div class="field-group" style="margin:2px 0 12px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
+          <div class="field-label" style="margin-bottom:6px;">📋 Paste a recipe (from a website, or just type it)</div>
+          <textarea id="recipePasteBox" class="field-input" style="width:100%;height:88px;font-size:11px;font-family:'DM Mono',monospace;box-sizing:border-box;" placeholder="One ingredient per line, any style, e.g.
+2 cups cooked rice
+1 tbsp olive oil
+1 can chickpeas (400g)
+½ tsp salt
+200g chicken breast, diced"></textarea>
+          <button class="btn-primary" style="font-size:12px;padding:7px 12px;margin-top:6px;" onclick="parseRecipeFromText()">Parse recipe →</button>
+        </div>
+        <div class="field-group" style="margin:2px 0 12px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
           <div class="field-label" style="margin-bottom:6px;">⚡ Load from menu card (92 recipes)</div>
           <div style="display:flex;gap:6px;">
             <select class="field-input" id="menuRecipeSelect" style="flex:1;font-size:12px;"></select>
@@ -4402,7 +4412,25 @@ const ING_SYNONYMS = {
   'mustard seeds':'mustard seed','squash butternut':'butternut','vegetable broth':'stock vegetable',
   'peppermint leaves':'mint','basil leaves':'basil','white sugar':'sugar',
   'white pepper':'pepper white','garlic powder':'garlic','seasoning cajun':'cajun seasoning',
-  'olive oil':'oil olive','oil':'oil vegetable','tamarind pulp':'tamarind'
+  'olive oil':'oil olive','oil':'oil vegetable','tamarind pulp':'tamarind',
+  // recipe-language synonyms (paste-import)
+  'chickpeas':'chickpea','garbanzo beans':'chickpea','eggs':'egg','egg':'egg whole',
+  'cilantro':'coriander','aubergine':'eggplant','courgette':'zucchini',
+  'prawns':'prawn','shrimp':'prawn','shrimps':'prawn',
+  'dhal':'lentil','dal':'lentil','daal':'lentil','red lentils':'lentil red',
+  'scallions':'spring onion','green onions':'spring onion',
+  'capsicum':'capsicum','pepper':'pepper black','black pepper':'pepper black',
+  'caster sugar':'sugar','icing sugar':'sugar icing','brown sugar':'sugar brown',
+  'plain flour':'flour wheat','all purpose flour':'flour wheat','all-purpose flour':'flour wheat',
+  'self raising flour':'flour wheat self raising','cornstarch':'cornflour',
+  'stock':'stock','chicken stock':'stock chicken','vegetable stock':'stock vegetable',
+  'natural yoghurt':'yoghurt natural','greek yogurt':'yoghurt greek','greek yoghurt':'yoghurt greek',
+  'parmesan':'cheese parmesan','cheddar':'cheese cheddar','mozzarella':'cheese mozzarella',
+  'mince':'beef mince','ground beef':'beef mince','ground chicken':'chicken mince',
+  'roshi':'chapati','tuna chunks':'tuna canned','canned tuna':'tuna canned',
+  'coconut cream':'coconut cream','desiccated coconut':'coconut desiccated',
+  'lemon juice':'lemon juice','lime juice':'lime juice','spaghetti':'spaghetti',
+  'butter unsalted':'butter','unsalted butter':'butter','salted butter':'butter'
 };
 const _STOP = new Set(['the','of','and','with','fresh','powder','seeds','seed','leaves','leaf','sticks','stick','whole','sauce','pulp','dried','ground','sliced','chopped']);
 
@@ -4419,28 +4447,7 @@ function _zeroFood(name){ const f={name:name,cat:'(no match)',db:'?',_unmatched:
   ['kcal','prot','fat','cho','fibre','sugar','ca','fe','zn','na','k','p','mg','iod','vita','vitd','vitc','fol','b12','b1','b2','nia','sfa','mufa','pufa'].forEach(k=>f[k]=0); return f; }
 
 function matchIngredient(rawName){
-  let q=_normIng(rawName);
-  if(ING_SYNONYMS[q]) q=_normIng(ING_SYNONYMS[q]);
-  const qt=q.split(' ').filter(Boolean); if(!qt.length) return [];
-  const pool=[].concat(IFCT,AFCD,AUSNUT,(typeof NZFCD!=='undefined'?NZFCD:[]),customFoods);
-  const scored=[];
-  for(const f of pool){
-    if(!f||!f.name) continue;
-    const fn=_normIng(f.name); const ft=fn.split(' ').filter(Boolean); if(!ft.length) continue;
-    let score=0;
-    for(const t of qt){
-      if(ft.includes(t)) score += (_STOP.has(t)?1:5);
-      else if(t.length>3){ for(const w of ft){ if(Math.abs(w.length-t.length)<=2 && _lev(t,w)<=1){ score+=3; break; } } }
-    }
-    if(score<=0) continue;
-    if(ft[0]===qt[0]) score+=4;
-    if(fn===q) score+=10; else if(fn.startsWith(q)) score+=5;
-    score -= Math.min(ft.length,8)*0.3;
-    if(ft.includes('raw')) score+=1.0;
-    scored.push({f,score});
-  }
-  scored.sort((a,b)=>b.score-a.score);
-  return scored.slice(0,8).map(x=>x.f);
+  return matchIngredientScored(rawName).list;
 }
 
 function ingToGrams(qty,uom,name){
@@ -4458,6 +4465,206 @@ function ingToGrams(qty,uom,name){
   else if(u==='CUP'){ g=qty*240; exact=false; note='cup \u2248 240g'; }
   else { g=qty; exact=false; note='unit "'+u+'" assumed grams \u2014 check'; }
   return {grams:Math.round(g*100)/100,exact,note};
+}
+
+// ════════════════════════════════════════════════
+// FREE-TEXT RECIPE PARSER  (paste from any website / type freehand)
+// parseRecipeText(text) → [{raw, qty, unit, name, grams, gramsNote, approx}]
+// ════════════════════════════════════════════════
+const _FRAC = {'½':'1/2','⅓':'1/3','⅔':'2/3','¼':'1/4','¾':'3/4','⅕':'1/5','⅛':'1/8','⅜':'3/8','⅝':'5/8','⅞':'7/8'};
+const _UNIT_SYNS = [
+  // [grams-per-unit or 'count', names...]
+  [1,      'g','gm','gms','gram','grams'],
+  [1000,   'kg','kilo','kilogram','kilograms'],
+  [0.001,  'mg'],
+  [1,      'ml','millilitre','milliliter','mls'],
+  [1000,   'l','litre','liter','litres','liters'],
+  [28.35,  'oz','ounce','ounces'],
+  [453.6,  'lb','lbs','pound','pounds'],
+  [240,    'cup','cups'],
+  [15,     'tbsp','tbs','tablespoon','tablespoons'],
+  [5,      'tsp','teaspoon','teaspoons'],
+  [250,    'glass','glasses'],
+  [100,    'ladle','ladles'],
+  [150,    'katori'],
+  [0.5,    'pinch','pinches','dash'],
+  [30,     'handful','handfuls'],
+  [2,      'sprig','sprigs'],
+  [3,      'clove','cloves'],
+  ['count','can','cans','tin','tins'],
+  ['count','packet','packets','pack','sachet','sachets'],
+  ['count','slice','slices'],
+  ['count','piece','pieces','pc','pcs'],
+  ['count','stick','sticks'],
+  ['count','bunch','bunches'],
+  ['count','fillet','fillets'],
+];
+const _UNIT_LOOKUP = {};
+_UNIT_SYNS.forEach(row => { const val = row[0]; row.slice(1).forEach(n => _UNIT_LOOKUP[n] = {g: val === 'count' ? null : val, count: val === 'count', name: row[1]}); });
+// default grams for count-units when the matched food has no matching measure
+const _COUNT_DEFAULTS = {can:400, tin:400, packet:30, pack:30, sachet:10, slice:30, piece:50, pc:50, stick:10, bunch:100, fillet:120};
+const _PREP_WORDS = /\b(finely |roughly |thinly |coarsely )?(chopped|diced|minced|sliced|grated|crushed|peeled|drained|rinsed|beaten|melted|softened|trimmed|shredded|julienned|cubed|halved|quartered|to taste|optional|for garnish|for serving|plus extra.*)\b/gi;
+
+function _fracToNum(s){
+  s = s.trim();
+  const mix = s.match(/^(\d+)\s+(\d+)\/(\d+)$/); if (mix) return parseInt(mix[1]) + parseInt(mix[2])/parseInt(mix[3]);
+  const fr = s.match(/^(\d+)\/(\d+)$/); if (fr) return parseInt(fr[1])/parseInt(fr[2]);
+  const n = parseFloat(s); return isNaN(n) ? null : n;
+}
+
+function parseRecipeText(text){
+  const out = [];
+  let lines = (text||'').split(/\r?\n|;/);
+  for (let line of lines) {
+    const original = line.trim();
+    if (!original) continue;
+    // strip bullets / list numbers
+    line = original.replace(/^\s*(?:[-*•●▪‣▸]|\d+[.)]\s)\s*/, '').trim();
+    if (!line) continue;
+    // skip headers: "For the sauce:", ALL CAPS lines with no digits, markdown headers
+    if (/^#+\s/.test(line)) continue;
+    if (/:\s*$/.test(line) && !/\d/.test(line)) continue;
+    if (line === line.toUpperCase() && !/\d/.test(line) && line.length > 3) continue;
+    if (/^(ingredients|method|instructions|directions|steps|serves|preparation|notes?)\b/i.test(line) && !/\d.*\b(g|kg|ml|cup|tbsp|tsp)\b/i.test(line)) continue;
+    // normalize unicode fractions ("1½" → "1 1/2")
+    line = line.replace(/(\d)([¼-¾⅐-⅞])/g, '$1 $2');
+    line = line.replace(/[¼-¾⅐-⅞]/g, ch => _FRAC[ch] || ch);
+
+    let qty = 1, approx = false, rest = line;
+    // quantity: integer, decimal, fraction, mixed number, range
+    const QTY = /^(\d+\s+\d+\/\d+|\d+\/\d+|\d*\.\d+|\d+)(?:\s*(?:[-–—]|to)\s*(\d+\s+\d+\/\d+|\d+\/\d+|\d*\.\d+|\d+))?\s*/;
+    const qm = line.match(QTY);
+    if (qm) {
+      const a = _fracToNum(qm[1]);
+      const b = qm[2] != null ? _fracToNum(qm[2]) : null;
+      if (a != null) { qty = b != null ? (a + b) / 2 : a; approx = b != null; }
+      rest = line.slice(qm[0].length);
+    } else { approx = true; }
+
+    // unit: first word(s) after quantity
+    let unit = null, unitInfo = null;
+    const um = rest.match(/^([a-zA-Z.]+)\s+/);
+    if (um) {
+      const uw = um[1].toLowerCase().replace(/\.$/, '');
+      if (_UNIT_LOOKUP[uw]) { unit = uw; unitInfo = _UNIT_LOOKUP[uw]; rest = rest.slice(um[0].length); }
+    }
+    // "x large" style: qty + size word + count noun ("2 large eggs")
+    rest = rest.replace(/^(small|medium|large|heaped|level|scant)\s+/i, '');
+
+    // name: strip leading "of", parenthetical weight kept for override
+    let name = rest.replace(/^of\s+/i, '').trim();
+    // parenthetical weight override: "(400g)" / "(about 250 ml)"
+    let parenG = null;
+    const pm = name.match(/\((?:about\s*|approx\.?\s*|~\s*)?(\d+(?:\.\d+)?)\s*(g|gm|grams?|kg|ml|l|oz)\b[^)]*\)/i);
+    if (pm) {
+      const val = parseFloat(pm[1]), u = pm[2].toLowerCase();
+      parenG = val * (u === 'kg' ? 1000 : u === 'l' ? 1000 : u === 'oz' ? 28.35 : 1);
+    }
+    name = name.replace(/\([^)]*\)/g, ' ');
+    // drop pure prep clauses but keep state words (cooked/boiled/raw/canned)
+    name = name.replace(_PREP_WORDS, ' ').replace(/\s*,\s*$/,'').replace(/\s+,/g, ',').replace(/\s+/g, ' ').trim().replace(/[,.]+$/, '');
+    if (!name) continue;
+
+    // grams
+    let grams = null, gramsNote = '';
+    const toTaste = /\b(to taste|for garnish|optional|as needed)\b/i.test(original);
+    if (toTaste && !unitInfo && parenG == null) { grams = 1; gramsNote = '"to taste" — assumed 1g, adjust'; }
+    else if (parenG != null) { grams = Math.round(parenG * qty * 100) / 100; gramsNote = 'weight from "(...)" on line'; }
+    else if (unitInfo && !unitInfo.count) { grams = Math.round(qty * unitInfo.g * 100) / 100; if (['cup','tbsp','tsp','glass','ladle','katori','pinch','handful'].includes(unitInfo.name)) gramsNote = unit + ' ≈ ' + unitInfo.g + 'g (volume approx)'; }
+    // count units + unitless resolved after food match (needs the food's measures)
+    out.push({ raw: original, qty, unit, name, grams, gramsNote, approx, countUnit: unitInfo && unitInfo.count ? unit : (!unitInfo && !qm ? null : (!unitInfo ? 'each' : null)) });
+  }
+  return out;
+}
+window.parseRecipeText = parseRecipeText;
+
+// Resolve grams for a count-unit ("2 slices", "1 can") using the matched food's measures.
+function resolveCountUnit(food, qty, unitWord){
+  const uw = (unitWord||'').replace(/s$/, '');
+  const measures = getFoodMeasures(food);
+  const hit = measures.find(m => m.label.toLowerCase().includes(uw));
+  if (hit) return { grams: Math.round(qty * hit.g * 100)/100, note: qty + ' × ' + hit.label + ' (' + hit.g + 'g)', exact: true };
+  if (uw === 'each') {
+    const first = measures[0];
+    if (first) return { grams: Math.round(qty * first.g * 100)/100, note: qty + ' × ' + first.label + ' (' + first.g + 'g)', exact: true };
+    return { grams: qty * 50, note: qty + ' × unit (assumed 50g — check)', exact: false };
+  }
+  const def = _COUNT_DEFAULTS[uw] || 50;
+  return { grams: Math.round(qty * def * 100)/100, note: qty + ' ' + unitWord + ' (≈' + def + 'g each — check)', exact: false };
+}
+
+// Scored matching with confidence + cooked/raw state awareness.
+const _STATE_COOKED = /\b(cooked|boiled|steamed|grilled|baked|roasted|fried|poached|stewed)\b/;
+function _sing(t){
+  if (t.length <= 3) return t;
+  if (/ies$/.test(t)) return t.slice(0,-3)+'y';
+  if (/(oes|ses|xes|ches|shes)$/.test(t)) return t.slice(0,-2);
+  if (/s$/.test(t) && !/ss$/.test(t)) return t.slice(0,-1);
+  return t;
+}
+function matchIngredientScored(rawName){
+  let q=_normIng(rawName);
+  if(ING_SYNONYMS[q]) q=_normIng(ING_SYNONYMS[q]);
+  const qt=q.split(' ').filter(Boolean); if(!qt.length) return {list:[], conf:0};
+  const qCooked = _STATE_COOKED.test(q), qRaw = /\braw\b/.test(q);
+  const pool=[].concat(IFCT,AFCD,AUSNUT,(typeof NZFCD!=='undefined'?NZFCD:[]),customFoods);
+  const scored=[];
+  for(const f of pool){
+    if(!f||!f.name) continue;
+    const fn=_normIng(f.name); const ft=fn.split(' ').filter(Boolean); if(!ft.length) continue;
+    const fts=ft.map(_sing);
+    let score=0;
+    for(const t of qt){
+      const ts=_sing(t);
+      if(ft.includes(t) || fts.includes(ts)) score += (_STOP.has(t)?1:5);
+      else if(t.length>3){ for(const w of ft){ if(Math.abs(w.length-t.length)<=2 && _lev(t,w)<=1){ score+=3; break; } } }
+    }
+    if(score<=0) continue;
+    if(ft[0]===qt[0]) score+=4;
+    if(fn===q) score+=10; else if(fn.startsWith(q)) score+=5;
+    score -= Math.min(ft.length,8)*0.3;
+    // state awareness: 'cooked white rice' should land on 'Rice, white, boiled'
+    const fCooked = _STATE_COOKED.test(fn), fRaw = /\braw\b/.test(fn);
+    if (qCooked) { if (fCooked) score += 4; if (fRaw) score -= 2; }
+    else if (qRaw) { if (fRaw) score += 3; if (fCooked) score -= 2; }
+    else if (fRaw) score += 1.0;   // no state in query: mild preference for raw base foods
+    scored.push({f,score});
+  }
+  scored.sort((a,b)=>b.score-a.score);
+  const top = scored.slice(0,8);
+  const nonStop = qt.filter(t=>!_STOP.has(t)).length || 1;
+  const conf = top.length ? Math.min(1, top[0].score / (5*nonStop + 10)) : 0;
+  return { list: top.map(x=>x.f), conf };
+}
+
+// Parse the free-text recipe box → pending review items with confidence chips.
+function parseRecipeFromText(){
+  const ta = document.getElementById('recipePasteBox'); if(!ta) return;
+  const parsed = parseRecipeText(ta.value);
+  if(!parsed.length){ showToast('Nothing to parse — paste one ingredient per line'); return; }
+  const add = parsed.map(line => {
+    const m = matchIngredientScored(line.name);
+    const food = m.list[0] || _zeroFood(line.name);
+    let grams = line.grams, note = line.gramsNote, exact = !line.approx && grams != null, countInfo = null;
+    if (grams == null) {
+      countInfo = { qty: line.qty, unit: line.countUnit || 'each' };
+      const cu = resolveCountUnit(food, countInfo.qty, countInfo.unit);
+      grams = cu.grams; note = cu.note; exact = cu.exact && !line.approx;
+    } else if (line.gramsNote && line.gramsNote.includes('approx')) exact = false;
+    else if (line.gramsNote && line.gramsNote.startsWith('weight from')) exact = true;
+    return {
+      raw: { name: line.raw.length > 48 ? line.raw.slice(0,48)+'…' : line.raw, qty: line.qty, uom: line.unit || '' },
+      candidates: m.list, food,
+      grams: grams || 0,
+      conv: { exact, note: note || '' },
+      conf: m.conf,
+      countInfo,
+    };
+  });
+  pendingIngredients = pendingIngredients.concat(add);
+  renderReviewPanel();
+  ta.value = '';
+  showToast('Parsed ' + add.length + ' line' + (add.length>1?'s':'') + ' — review matches below');
 }
 
 function buildMenuRecipeOptions(){
@@ -4516,7 +4723,16 @@ function parsePastedIngredients(){
 
 function changePendingMatch(i,ci){
   const it=pendingIngredients[i]; if(!it||!it.candidates) return;
-  const c=it.candidates[parseInt(ci)]; if(c) it.food=c; renderReviewPanel();
+  const c=it.candidates[parseInt(ci)];
+  if(c){
+    it.food=c;
+    // "2 slices", "3 eggs" etc: gram weight depends on the chosen food's measures
+    if(it.countInfo){
+      const cu=resolveCountUnit(c, it.countInfo.qty, it.countInfo.unit);
+      it.grams=cu.grams; it.conv={exact:cu.exact, note:cu.note};
+    }
+  }
+  renderReviewPanel();
 }
 function changePendingQty(i,v){
   const it=pendingIngredients[i]; if(!it) return; const g=parseFloat(v)||0;
@@ -4549,9 +4765,12 @@ function renderReviewPanel(){
     const cands=item.candidates&&item.candidates.length?item.candidates:[];
     const opts=cands.map((c,ci)=>'<option value="'+ci+'" '+(c===item.food?'selected':'')+'>'+c.name+' \u00b7 '+c.db.toUpperCase()+' \u00b7 '+Math.round(c.kcal)+'kcal/100g</option>').join('');
     const unmatched=!!item.food._unmatched;
-    const amber=!unmatched && item.conv && !item.conv.exact;
-    const dot=unmatched?'#ef4444':(amber?'#f59e0b':'#10b981');
-    const tip=unmatched?'No match \u2014 pick from list':(amber?'Unit assumed \u2014 check grams':'Matched');
+    const lowConf=!unmatched && item.conf!=null && item.conf<0.4;
+    const midConf=!unmatched && item.conf!=null && item.conf>=0.4 && item.conf<0.75;
+    const amber=!unmatched && ((item.conv && !item.conv.exact) || midConf);
+    const dot=(unmatched||lowConf)?'#ef4444':(amber?'#f59e0b':'#10b981');
+    const confPct=item.conf!=null?Math.round(item.conf*100)+'% match':'';
+    const tip=unmatched?'No match \u2014 pick from list':(lowConf?'Weak match ('+confPct+') \u2014 verify':(amber?(midConf?'Possible match ('+confPct+') \u2014 verify':'Unit assumed \u2014 check grams'):'Matched'+(confPct?' \u00b7 '+confPct:'')));
     return '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:7px 0;border-bottom:1px solid var(--border);">'
       +'<div style="display:flex;align-items:center;gap:6px;width:100%;">'
         +'<span style="width:8px;height:8px;border-radius:50%;background:'+dot+';flex:none;" title="'+tip+'"></span>'
