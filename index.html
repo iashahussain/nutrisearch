@@ -825,12 +825,24 @@
   /* ── USDA LOADING ── */
   .usda-loading { font-size: 11px; color: var(--text3); padding: 8px 16px; font-style: italic; }
 
-  /* ── PRINT ── */
+  /* ── PRINT (dedicated patient handout sheet) ── */
+  #printSheet { display: none; }
   @media print {
-    header { display: none; }
-    .left-panel { display: none; }
-    .app { display: block; height: auto; }
-    .right-panel { overflow: visible; }
+    body > *:not(#printSheet) { display: none !important; }
+    #printSheet { display: block !important; font-family: Georgia, 'Times New Roman', serif; color: #1a1714; padding: 0; }
+    #printSheet .ps-header { border-bottom: 2px solid #2d6a4f; padding-bottom: 10px; margin-bottom: 14px; }
+    #printSheet .ps-hospital { font-size: 17px; font-weight: 700; color: #2d6a4f; letter-spacing: 0.5px; }
+    #printSheet .ps-title { font-size: 14px; margin-top: 2px; }
+    #printSheet .ps-meta { font-size: 11px; color: #444; margin-top: 6px; display: flex; gap: 24px; flex-wrap: wrap; }
+    #printSheet .ps-day { page-break-inside: avoid; margin-bottom: 16px; }
+    #printSheet .ps-day + .ps-day { page-break-before: auto; }
+    #printSheet .ps-day-title { font-size: 13px; font-weight: 700; background: #eef3ef; padding: 4px 8px; border-left: 3px solid #2d6a4f; margin-bottom: 6px; }
+    #printSheet table { width: 100%; border-collapse: collapse; font-size: 11px; }
+    #printSheet th, #printSheet td { border: 1px solid #ccc; padding: 4px 7px; text-align: left; vertical-align: top; }
+    #printSheet th { background: #f4f1ea; font-weight: 700; }
+    #printSheet .ps-summary { margin-top: 14px; page-break-inside: avoid; }
+    #printSheet .ps-summary-title { font-size: 12px; font-weight: 700; margin-bottom: 5px; }
+    #printSheet .ps-footer { margin-top: 18px; font-size: 10px; color: #666; border-top: 1px solid #ccc; padding-top: 6px; }
   }
 
   /* ── ANIMATIONS ── */
@@ -974,6 +986,9 @@
             <option value="">Open saved plan…</option>
           </select>
           <button class="btn-secondary" style="font-size:11px;padding:5px 9px;" onclick="newPlan()">＋ New plan</button>
+          <button class="btn-secondary" style="font-size:11px;padding:5px 9px;" onclick="printPlanHandout()" title="Print a patient handout of this plan">🖨 Handout</button>
+          <button class="btn-secondary" style="font-size:11px;padding:5px 9px;" onclick="copyPlanText()" title="Copy the plan as text for the diet-plan document workflow">⎘ Text</button>
+          <button class="btn-secondary" style="font-size:11px;padding:5px 9px;" onclick="copyPlanJSON()" title="Copy the full plan + computed totals as JSON">{ } JSON</button>
           <button class="btn-secondary" style="font-size:11px;padding:5px 9px;color:var(--red,#c0392b);" onclick="deletePlan()">Delete</button>
         </div>
         <div id="dayStrip" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px;"></div>
@@ -4507,8 +4522,129 @@ function setAnalysisScope(scope){
   updateAnalysis();
 }
 
-// Phase 8 print handout — placeholder until buildPrintSheet ships
-function printPlanHandout(){ if (typeof buildPrintSheet === 'function') { buildPrintSheet(currentPlan); window.print(); } else window.print(); }
+// ════════════════════════════════════════════════
+// PRINTABLE PATIENT HANDOUT + STRUCTURED COPY-OUT
+// ════════════════════════════════════════════════
+const MEAL_ORDER = ['breakfast','morning_snack','lunch','afternoon_snack','dinner','evening_snack'];
+
+function _dayTotals(day){
+  return computeTotals(Object.values(day.meals).flat());
+}
+function _planAvgTotals(plan){
+  const n = plan.days.length || 1;
+  return computeTotals(plan.days.flatMap(d => Object.values(d.meals).flat().map(it => ({food: it.food, grams: it.grams / n, retention: it.retention}))));
+}
+
+function buildPrintSheet(plan){
+  let el = document.getElementById('printSheet');
+  if (!el) { el = document.createElement('div'); el.id = 'printSheet'; document.body.appendChild(el); }
+  const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const today = new Date().toLocaleDateString('en-GB', {day:'numeric', month:'long', year:'numeric'});
+  const tgt = plan.targets || {};
+  const fmt = (v, d=0) => v==null||isNaN(v) ? '—' : (+v).toFixed(d);
+
+  const dayBlocks = plan.days.map(day => {
+    const rows = MEAL_ORDER.filter(m => (day.meals[m]||[]).length).map(m => {
+      const items = day.meals[m].map(it => esc(it.food.name) + (it.portionLabel ? ` — ${esc(it.portionLabel)}` : ` — ${it.grams} g`)).join('<br>');
+      return `<tr><th style="width:120px;">${MEAL_NAMES[m]}</th><td>${items}</td></tr>`;
+    }).join('');
+    const t = _dayTotals(day);
+    return `<div class="ps-day">
+      <div class="ps-day-title">${esc(day.label)}</div>
+      <table>${rows || '<tr><td style="color:#888;">No foods planned</td></tr>'}</table>
+      <div style="font-size:10px;color:#444;margin-top:3px;">Day total: ${Math.round(t.kcal)} kcal · protein ${fmt(t.prot,1)} g · fat ${fmt(t.fat,1)} g · carbohydrate ${fmt(t.cho,1)} g · fibre ${fmt(t.fibre,1)} g · sodium ${Math.round(t.na)} mg</div>
+    </div>`;
+  }).join('');
+
+  const avg = _planAvgTotals(plan);
+  const tgtRow = (label, val, target, unit, d=0) => `<tr><td>${label}</td><td>${fmt(val,d)} ${unit}</td><td>${target?fmt(target,0)+' '+unit:'—'}</td><td>${target?Math.round(val/target*100)+'%':'—'}</td></tr>`;
+
+  el.innerHTML = `
+    <div class="ps-header">
+      <div class="ps-hospital">Tree Top Hospital</div>
+      <div class="ps-title">Patient Meal Plan${plan.name ? ' — ' + esc(plan.name) : ''}</div>
+      <div class="ps-meta">
+        ${plan.patient ? `<span><strong>Patient:</strong> ${esc(plan.patient)}</span>` : ''}
+        ${plan.dietLabel ? `<span><strong>Diet:</strong> ${esc(plan.dietLabel)}</span>` : ''}
+        <span><strong>Days:</strong> ${plan.days.length}</span>
+        <span><strong>Date:</strong> ${today}</span>
+        <span><strong>Dietitian:</strong> Aminath Iasha, APD</span>
+      </div>
+    </div>
+    ${dayBlocks}
+    <div class="ps-summary">
+      <div class="ps-summary-title">Nutrition summary — daily average${plan.days.length>1 ? ` over ${plan.days.length} days` : ''} vs targets</div>
+      <table>
+        <tr><th>Nutrient</th><th>Daily average</th><th>Target</th><th>% target</th></tr>
+        ${tgtRow('Energy', avg.kcal, tgt.kcal, 'kcal')}
+        ${tgtRow('Protein', avg.prot, tgt.prot, 'g', 1)}
+        ${tgtRow('Fat', avg.fat, tgt.fat, 'g', 1)}
+        ${tgtRow('Carbohydrate', avg.cho, tgt.cho, 'g', 1)}
+        ${tgtRow('Fibre', avg.fibre, tgt.fibre, 'g', 1)}
+        ${tgtRow('Sodium', avg.na, null, 'mg')}
+        ${tgtRow('Calcium', avg.ca, null, 'mg')}
+        ${tgtRow('Iron', avg.fe, null, 'mg', 1)}
+        ${tgtRow('Potassium', avg.k, null, 'mg')}
+      </table>
+    </div>
+    <div class="ps-footer">Generated with NutriSearch · nutrient values from IFCT 2017 / AFCD / AUSNUT 2023 / NZFCD / USDA FDC and verified product labels. Values are estimates for clinical guidance.</div>`;
+}
+
+function syncPlanTargets(){
+  if (!currentPlan) return;
+  currentPlan.targets = {};
+  ['kcal','prot','fat','cho','fibre'].forEach(k => {
+    const v = parseFloat(document.getElementById('tgt_' + k)?.value);
+    if (v) currentPlan.targets[k] = v;
+  });
+}
+
+function printPlanHandout(){
+  if (!currentPlan) { window.print(); return; }
+  syncPlanTargets();
+  buildPrintSheet(currentPlan);
+  window.print();
+}
+
+function planToText(plan){
+  const lines = [];
+  lines.push(`# Meal Plan${plan.name ? ': ' + plan.name : ''}`);
+  const meta = [];
+  if (plan.patient) meta.push('Patient: ' + plan.patient);
+  if (plan.dietLabel) meta.push('Diet: ' + plan.dietLabel);
+  meta.push('Days: ' + plan.days.length);
+  const tgt = plan.targets || {};
+  if (tgt.kcal || tgt.prot) meta.push('Targets/day: ' + [tgt.kcal && tgt.kcal+' kcal', tgt.prot && tgt.prot+' g protein', tgt.fat && tgt.fat+' g fat', tgt.cho && tgt.cho+' g CHO', tgt.fibre && tgt.fibre+' g fibre'].filter(Boolean).join(', '));
+  lines.push(meta.join(' | '), '');
+  plan.days.forEach(day => {
+    lines.push(`## ${day.label}`);
+    MEAL_ORDER.filter(m => (day.meals[m]||[]).length).forEach(m => {
+      lines.push(`### ${MEAL_NAMES[m]}`);
+      day.meals[m].forEach(it => lines.push(`- ${it.food.name} — ${it.portionLabel || it.grams + ' g'}`));
+    });
+    const t = _dayTotals(day);
+    lines.push(`Day total: ${Math.round(t.kcal)} kcal, protein ${t.prot.toFixed(1)} g, fat ${t.fat.toFixed(1)} g, CHO ${t.cho.toFixed(1)} g, fibre ${t.fibre.toFixed(1)} g, Na ${Math.round(t.na)} mg`, '');
+  });
+  const avg = _planAvgTotals(plan);
+  lines.push(`## Daily average (${plan.days.length} day${plan.days.length>1?'s':''})`);
+  lines.push(`Energy ${Math.round(avg.kcal)} kcal | Protein ${avg.prot.toFixed(1)} g | Fat ${avg.fat.toFixed(1)} g | CHO ${avg.cho.toFixed(1)} g | Fibre ${avg.fibre.toFixed(1)} g | Na ${Math.round(avg.na)} mg | Ca ${Math.round(avg.ca)} mg | Fe ${avg.fe.toFixed(1)} mg | K ${Math.round(avg.k)} mg`);
+  return lines.join('\n');
+}
+
+function copyPlanText(){
+  if (!currentPlan) return;
+  syncPlanTargets();
+  _copyText(planToText(currentPlan), 'Plan copied as text — paste into your diet-plan workflow');
+}
+function copyPlanJSON(){
+  if (!currentPlan) return;
+  syncPlanTargets();
+  const payload = planToStorage(currentPlan);
+  payload.computed = { perDay: currentPlan.days.map(d => { const t = _dayTotals(d); const o = {}; NUTRIENT_KEYS.forEach(k => o[k] = +t[k].toFixed(2)); return { label: d.label, totals: o }; }) };
+  const avg = _planAvgTotals(currentPlan); const ao = {}; NUTRIENT_KEYS.forEach(k => ao[k] = +avg[k].toFixed(2));
+  payload.computed.dailyAverage = ao;
+  _copyText(JSON.stringify(payload, null, 2), 'Plan copied as JSON');
+}
 
 function clearTargets() {
   ['kcal','prot','fat','cho','fibre'].forEach(k => document.getElementById('tgt_'+k).value = '');
