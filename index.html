@@ -1039,8 +1039,11 @@
               <input class="field-input" id="recipeServingSize" type="text" placeholder="e.g. 250g">
             </div>
             <div class="field-group">
-              <div class="field-label">Finished wt (g)</div>
+              <div class="field-label">Finished wt (g) <span style="font-weight:400;color:var(--text3);" title="Cooked weight of the whole dish. Weigh the pot for accuracy, or estimate from a preparation type.">ⓘ</span></div>
               <input class="field-input" id="recipeFinishedWeight" type="number" min="0" step="any" placeholder="raw sum">
+              <select id="recipeYieldSelect" style="width:100%;font-size:10px;margin-top:3px;color:var(--text3);border:1px solid var(--border);border-radius:4px;padding:2px;background:transparent;" onchange="estimateFinishedWeight(this)">
+                <option value="">estimate from cooking type…</option>
+              </select>
             </div>
           </div>
         </div>
@@ -4801,6 +4804,151 @@ function renderReviewPanel(){
 }
 
 
+// ════════════════════════════════════════════════
+// COOKING YIELD & NUTRIENT RETENTION  (Foodworks-style recipe corrections)
+// Yield: cooked weight ≠ raw sum (water absorbed/lost) → corrects per-100g.
+// Retention: cooking destroys/leaches labile vitamins & some minerals
+// (adapted from USDA Table of Nutrient Retention Factors, Release 6).
+// Both optional — raw analysis is the default when nothing is selected.
+// ════════════════════════════════════════════════
+const YIELD_FACTORS = [
+  { label:'Boiled rice / grains (absorbs water)', factor:2.6 },
+  { label:'Boiled pasta / noodles',               factor:2.4 },
+  { label:'Boiled dhal / legumes',                factor:2.3 },
+  { label:'Porridge / congee',                    factor:4.0 },
+  { label:'Stew / curry, simmered',               factor:0.85 },
+  { label:'Soup, long simmer',                    factor:0.8 },
+  { label:'Roast meat / poultry',                 factor:0.73 },
+  { label:'Grilled fish / meat',                  factor:0.78 },
+  { label:'Shallow-fried',                        factor:0.85 },
+  { label:'Baked dish / casserole',               factor:0.9 },
+  { label:'Steamed vegetables',                   factor:0.95 },
+  { label:'Boiled vegetables (drained)',          factor:0.9 },
+  { label:'Reduced sauce',                        factor:0.6 },
+];
+
+const COOK_METHODS = [
+  { key:'',               label:'as-is' },
+  { key:'boiled-drained', label:'Boiled (drained)' },
+  { key:'stewed',         label:'Stew/curry (liquid kept)' },
+  { key:'steamed',        label:'Steamed' },
+  { key:'fried',          label:'Fried' },
+  { key:'baked',          label:'Baked/roasted' },
+  { key:'grilled',        label:'Grilled' },
+];
+
+// group × method → retention factor per labile nutrient (1.0 = fully retained; unlisted = 1.0)
+const RETENTION_FACTORS = {
+  veg: {
+    'boiled-drained': {vitc:0.55, fol:0.65, b1:0.75, b2:0.85, nia:0.85, vita:0.9, k:0.75, mg:0.85, na:0.75, p:0.9, zn:0.9, fe:0.9, ca:0.95},
+    'stewed':         {vitc:0.6,  fol:0.7,  b1:0.8,  b2:0.9,  nia:0.9,  vita:0.95},
+    'steamed':        {vitc:0.8,  fol:0.85, b1:0.9,  b2:0.95, nia:0.95, vita:0.95},
+    'fried':          {vitc:0.75, fol:0.85, b1:0.8,  b2:0.95, nia:0.95, vita:0.9},
+    'baked':          {vitc:0.7,  fol:0.85, b1:0.85, b2:0.95, nia:0.95, vita:0.9},
+    'grilled':        {vitc:0.75, fol:0.85, b1:0.85, b2:0.95, nia:0.95, vita:0.9},
+  },
+  potato: {
+    'boiled-drained': {vitc:0.75, fol:0.75, b1:0.8,  b2:0.95, nia:0.95, k:0.85, mg:0.9},
+    'stewed':         {vitc:0.7,  fol:0.75, b1:0.8,  b2:0.95, nia:0.95},
+    'steamed':        {vitc:0.8,  fol:0.8,  b1:0.85, b2:0.95, nia:0.95},
+    'fried':          {vitc:0.65, fol:0.75, b1:0.75, b2:0.95, nia:0.95},
+    'baked':          {vitc:0.7,  fol:0.75, b1:0.8,  b2:0.95, nia:0.95},
+    'grilled':        {vitc:0.7,  fol:0.75, b1:0.8,  b2:0.95, nia:0.95},
+  },
+  legume: {
+    'boiled-drained': {vitc:0.5,  fol:0.7,  b1:0.75, b2:0.9,  nia:0.9, k:0.8, mg:0.85},
+    'stewed':         {vitc:0.55, fol:0.75, b1:0.8,  b2:0.9,  nia:0.9},
+    'steamed':        {vitc:0.7,  fol:0.8,  b1:0.85, b2:0.95, nia:0.95},
+    'fried':          {vitc:0.6,  fol:0.8,  b1:0.8,  b2:0.95, nia:0.95},
+    'baked':          {vitc:0.6,  fol:0.8,  b1:0.8,  b2:0.95, nia:0.95},
+    'grilled':        {vitc:0.6,  fol:0.8,  b1:0.8,  b2:0.95, nia:0.95},
+  },
+  grain: {
+    'boiled-drained': {fol:0.75, b1:0.75, b2:0.9,  nia:0.85, fe:0.95},
+    'stewed':         {fol:0.8,  b1:0.8,  b2:0.9,  nia:0.9},
+    'steamed':        {fol:0.85, b1:0.85, b2:0.95, nia:0.95},
+    'fried':          {fol:0.85, b1:0.8,  b2:0.95, nia:0.95},
+    'baked':          {fol:0.85, b1:0.8,  b2:0.95, nia:0.95},
+    'grilled':        {fol:0.85, b1:0.8,  b2:0.95, nia:0.95},
+  },
+  meat: {
+    'boiled-drained': {b1:0.6,  b2:0.85, nia:0.75, b12:0.7, fol:0.75, k:0.7, na:0.8, mg:0.85, p:0.9},
+    'stewed':         {b1:0.7,  b2:0.9,  nia:0.85, b12:0.8, fol:0.8},
+    'steamed':        {b1:0.8,  b2:0.95, nia:0.9,  b12:0.9, fol:0.9},
+    'fried':          {b1:0.8,  b2:0.95, nia:0.9,  b12:0.8, fol:0.85},
+    'baked':          {b1:0.85, b2:0.95, nia:0.9,  b12:0.8, fol:0.85},
+    'grilled':        {b1:0.8,  b2:0.95, nia:0.9,  b12:0.8, fol:0.85},
+  },
+  fish: {
+    'boiled-drained': {b1:0.75, b2:0.9,  nia:0.85, b12:0.85, fol:0.85, k:0.85},
+    'stewed':         {b1:0.8,  b2:0.9,  nia:0.9,  b12:0.9,  fol:0.9},
+    'steamed':        {b1:0.9,  b2:0.95, nia:0.95, b12:0.95, fol:0.95},
+    'fried':          {b1:0.85, b2:0.95, nia:0.9,  b12:0.9,  fol:0.9},
+    'baked':          {b1:0.85, b2:0.95, nia:0.9,  b12:0.9,  fol:0.9},
+    'grilled':        {b1:0.85, b2:0.95, nia:0.9,  b12:0.9,  fol:0.9},
+  },
+  egg: {
+    'boiled-drained': {fol:0.9,  b1:0.85, b2:0.95, b12:0.9},
+    'stewed':         {fol:0.9,  b1:0.85, b2:0.95, b12:0.9},
+    'steamed':        {fol:0.9,  b1:0.9,  b2:0.95, b12:0.95},
+    'fried':          {fol:0.85, b1:0.85, b2:0.95, b12:0.9},
+    'baked':          {fol:0.85, b1:0.85, b2:0.95, b12:0.9},
+    'grilled':        {fol:0.85, b1:0.85, b2:0.95, b12:0.9},
+  },
+  fruit: {
+    'boiled-drained': {vitc:0.6,  fol:0.7,  b1:0.8},
+    'stewed':         {vitc:0.65, fol:0.75, b1:0.85},
+    'steamed':        {vitc:0.8,  fol:0.85, b1:0.9},
+    'fried':          {vitc:0.7,  fol:0.8,  b1:0.85},
+    'baked':          {vitc:0.7,  fol:0.8,  b1:0.85},
+    'grilled':        {vitc:0.7,  fol:0.8,  b1:0.85},
+  },
+};
+
+function foodGroupOf(food){
+  const s = ((food.cat||'') + ' ' + (food.name||'')).toLowerCase();
+  if (/\b(fish|tuna|salmon|mackerel|sardine|snapper|prawn|shrimp|seafood|crab|squid|reef)\b/.test(s)) return 'fish';
+  if (/\b(chicken|beef|lamb|mutton|pork|meat|sausage|turkey|duck|mince)\b/.test(s)) return 'meat';
+  if (/\begg/.test(s) && !/eggplant/.test(s)) return 'egg';
+  if (/\b(lentil|dhal|dal|chickpea|chick pea|bean|legume|pulse)\b/.test(s) && !/green bean|bean sprout/.test(s)) return 'legume';
+  if (/\b(potato|cassava|taro|yam|tapioca)\b/.test(s) && !/chips|crisps/.test(s)) return 'potato';
+  if (/\b(rice|pasta|noodle|spaghetti|macaroni|wheat|flour|oat|barley|quinoa|couscous|cereal|grain|bread)\b/.test(s)) return 'grain';
+  if (/\b(fruit|banana|apple|mango|papaya|orange|melon|berr|pineapple|guava)\b/.test(s)) return 'fruit';
+  if (/\b(vegetable|spinach|cabbage|carrot|broccoli|cauliflower|pumpkin|okra|tomato|onion|capsicum|greens|leaf|gourd|zucchini|eggplant|bean sprout|green bean)\b/.test(s)) return 'veg';
+  return null;
+}
+
+function retentionFor(food, method){
+  if (!method) return null;
+  const group = foodGroupOf(food);
+  if (!group) return null;
+  return (RETENTION_FACTORS[group] || {})[method] || null;
+}
+
+function isAlreadyCooked(food){ return _STATE_COOKED.test((food.name||'').toLowerCase()); }
+
+function recipeItemRetention(item){
+  return item && item.cookMethod ? retentionFor(item.food, item.cookMethod) : null;
+}
+
+function setRecipeCookMethod(i, method){
+  const item = recipeItems[i]; if(!item) return;
+  item.cookMethod = method;
+  renderRecipeItems();
+}
+
+function estimateFinishedWeight(sel){
+  const idx = parseInt(sel.value);
+  sel.value = '';
+  if (isNaN(idx)) return;
+  const yf = YIELD_FACTORS[idx];
+  const rawSum = recipeItems.reduce((s,it)=>s+it.grams, 0);
+  if (!rawSum) { showToast('Add ingredients first'); return; }
+  const est = Math.round(rawSum * yf.factor);
+  document.getElementById('recipeFinishedWeight').value = est;
+  showToast(`${yf.label}: ${Math.round(rawSum)}g raw × ${yf.factor} ≈ ${est}g cooked`);
+}
+
 function renderRecipeItems() {
   const area = document.getElementById('recipeItems');
   const servings = Math.max(1, parseFloat(document.getElementById('recipeServings')?.value) || 1);
@@ -4836,19 +4984,26 @@ function renderRecipeItems() {
   const totals = {}; activeNutrients.forEach(n => totals[n.key] = 0);
   let totalKcal = 0;
 
+  let anyRetention = false;
   const rows = recipeItems.map((item, i) => {
     const perServeG = item.grams / servings;            // grams of this ingredient per serve
+    const ret = recipeItemRetention(item);
+    if (ret) anyRetention = true;
     const nutrcols = activeNutrients.map(n => {
-      const val = (item.food[n.key]||0) * perServeG / 100;
+      const rf = ret && ret[n.key] != null ? ret[n.key] : 1;
+      const val = (item.food[n.key]||0) * perServeG / 100 * rf;
       totals[n.key] += val;
       const disp = val < 10 ? val.toFixed(1) : Math.round(val);
       return `<span class="log-nutrient" style="${nutrientCellStyle(val, n)}">${disp}</span>`;
     }).join('');
     const kcal = item.food.kcal * perServeG / 100;
     totalKcal += kcal;
+    const alreadyCooked = isAlreadyCooked(item.food);
+    const cookSelect = `<select style="font-size:9px;padding:1px 2px;margin-top:2px;max-width:130px;color:var(--text3);border:1px solid var(--border);border-radius:4px;background:transparent;" title="${alreadyCooked ? 'This database entry is already a cooked food — leave as-is to avoid double-counting losses' : 'Cooking method — applies vitamin/mineral retention factors'}" onclick="event.stopPropagation()" onchange="event.stopPropagation();setRecipeCookMethod(${i}, this.value)">${COOK_METHODS.map(m => `<option value="${m.key}" ${(item.cookMethod||'')===m.key?'selected':''}>${m.key===''?(alreadyCooked?'already cooked':'🍳 as-is'):m.label}</option>`).join('')}</select>`;
+    const retChip = ret ? `<span style="font-size:8px;color:var(--accent);" title="Retention factors applied (${COOK_METHODS.find(m=>m.key===item.cookMethod).label})">↓vit</span>` : '';
     return `<div class="log-item" style="${gridStyle};cursor:pointer;" onclick="showRecipeItemDetail(${i})">
       <span class="db-tag tag-${item.food.db}" style="font-size:8px;justify-self:center;">${item.food.db.toUpperCase()}</span>
-      <span class="log-item-name" onmouseenter="showNameTip(event, this)" onmouseleave="hideNameTip()" data-fullname="${item.food.name.replace(/"/g,'&quot;')}">${item.food.name}</span>
+      <span class="log-item-name" onmouseenter="showNameTip(event, this)" onmouseleave="hideNameTip()" data-fullname="${item.food.name.replace(/"/g,'&quot;')}">${item.food.name}<br>${cookSelect} ${retChip}</span>
       <span class="log-item-portion" style="line-height:1.2;">${item.portionLabel || item.grams+'g'}${servings>1?`<br><span style="font-size:9px;color:var(--text3);font-weight:400;">${fmtG(perServeG)}/serve</span>`:''}</span>
       ${nutrcols}
       <span class="log-item-kcal">${Math.round(kcal)}</span>
@@ -4873,7 +5028,10 @@ function renderRecipeItems() {
       <span></span>
     </div>`;
 
-  area.innerHTML = header + rows + totalRow;
+  const retNote = anyRetention
+    ? `<div style="font-size:9px;color:var(--text3);padding:4px 0 0 28px;">↓vit = cooking retention factors applied (USDA R6-based estimates) to vitamins/leached minerals. Energy & macros unchanged.</div>`
+    : '';
+  area.innerHTML = header + rows + totalRow + retNote;
 }
 
 function showRecipeItemDetail(i) {
@@ -4898,7 +5056,11 @@ function _recipePerServeTotals(){
   const servings=Math.max(1,parseFloat(document.getElementById('recipeServings')?.value)||1);
   const keys=['kcal','prot','fat','sfa','cho','sugar','fibre','na','k','ca','p','fe','vitc','fol','zn'];
   const t={}; keys.forEach(k=>t[k]=0); let wt=0;
-  recipeItems.forEach(it=>{ const g=it.grams/servings; wt+=g; keys.forEach(k=>t[k]+=(parseFloat(it.food[k])||0)*g/100); });
+  recipeItems.forEach(it=>{
+    const g=it.grams/servings; wt+=g;
+    const ret=recipeItemRetention(it);
+    keys.forEach(k=>{ const rf=ret&&ret[k]!=null?ret[k]:1; t[k]+=(parseFloat(it.food[k])||0)*g/100*rf; });
+  });
   t.kj=t.kcal*4.184; t.wt=wt;
   return t;
 }
@@ -4956,7 +5118,7 @@ function analyseRecipe() {
   const servingSize = document.getElementById('recipeServingSize').value.trim();
   // Treat recipe as a meal log entry for analysis
   const prevLog = {...mealLog};
-  mealLog = { recipe: recipeItems.map(i => ({food:i.food, grams:i.grams/servings})) };
+  mealLog = { recipe: recipeItems.map(i => ({food:i.food, grams:i.grams/servings, retention:recipeItemRetention(i)})) };
   const sizeNote = servingSize ? ` of ${servingSize}` : '';
   updateAnalysis(name + ` (per serving${sizeNote}, ${servings} servings total)`);
   mealLog = prevLog;
@@ -4985,7 +5147,7 @@ function saveRecipe() {
     servings: parseFloat(document.getElementById('recipeServings').value)||1,
     servingSize: document.getElementById('recipeServingSize').value.trim(),
     finishedWeight: parseFloat(document.getElementById('recipeFinishedWeight').value)||null,
-    items: recipeItems.map(i => ({ food: i.food, grams: i.grams, portionLabel: i.portionLabel })),
+    items: recipeItems.map(i => ({ food: i.food, grams: i.grams, portionLabel: i.portionLabel, cookMethod: i.cookMethod || '' })),
   };
   loadSavedRecipes();
   const existing = savedRecipes.findIndex(r => r.id === rec.id);
@@ -5000,7 +5162,7 @@ function loadRecipe(id) {
   loadSavedRecipes();
   const rec = savedRecipes.find(r => r.id === id);
   if (!rec) return;
-  recipeItems = rec.items.map(i => ({ food: i.food, grams: i.grams, portionLabel: i.portionLabel }));
+  recipeItems = rec.items.map(i => ({ food: i.food, grams: i.grams, portionLabel: i.portionLabel, cookMethod: i.cookMethod || '' }));
   editingRecipeId = rec.id;
   document.getElementById('recipeName').value = rec.name || '';
   document.getElementById('recipeServings').value = rec.servings || 1;
@@ -5050,7 +5212,8 @@ function saveRecipeAsCustomFood() {
   recipeItems.forEach(item => {
     const g = item.grams/100;
     rawWeight += item.grams;
-    keys.forEach(k => totals[k] += (parseFloat(item.food[k])||0) * g);
+    const ret = recipeItemRetention(item);
+    keys.forEach(k => { const rf = ret && ret[k] != null ? ret[k] : 1; totals[k] += (parseFloat(item.food[k])||0) * g * rf; });
   });
 
   // Dish weight basis: finished weight if given, else raw sum of ingredients
@@ -5385,6 +5548,10 @@ window.addEventListener('load', () => {
   initNutrientToggles();
   initRecipeNutrientToggles();
   renderSavedRecipes();
+  // yield-factor estimate options
+  const ys = document.getElementById('recipeYieldSelect');
+  if (ys) ys.innerHTML = '<option value="">estimate from cooking type…</option>' +
+    YIELD_FACTORS.map((y,i) => `<option value="${i}">${y.label} (×${y.factor})</option>`).join('');
   // PWA: register service worker on https only (skips file:// and local dev)
   if (location.protocol === 'https:' && 'serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(()=>{});
