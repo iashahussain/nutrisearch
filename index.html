@@ -880,7 +880,7 @@
   <div class="left-panel">
     <div class="panel-tabs">
       <button class="panel-tab active" onclick="switchTab('search')">🔍 Food Search</button>
-      <button class="panel-tab" onclick="switchTab('log')">📋 Meal Log</button>
+      <button class="panel-tab" onclick="switchTab('log')">📅 Meal Plans</button>
       <button class="panel-tab" onclick="switchTab('recipe')">🍳 Recipe</button>
       <button class="panel-tab" onclick="switchTab('custom')">＋ Custom</button>
     </div>
@@ -962,6 +962,22 @@
 
     <!-- TAB 2: MEAL LOG -->
     <div class="tab-content" id="tab-log">
+      <!-- PLAN BAR: patient plan header + day strip -->
+      <div style="padding:10px 12px;border-bottom:1px solid var(--border);background:var(--surface2);">
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px;">
+          <input class="field-input" id="planName" type="text" placeholder="Plan name — e.g. Bed 12 · 1800 kcal low Na" style="flex:2;min-width:160px;font-size:12px;" oninput="planFieldChange()">
+          <input class="field-input" id="planPatient" type="text" placeholder="Patient" style="flex:1;min-width:80px;font-size:12px;" oninput="planFieldChange()">
+          <input class="field-input" id="planDiet" type="text" placeholder="Diet" style="flex:1;min-width:80px;font-size:12px;" oninput="planFieldChange()">
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+          <select class="field-input" id="planLoadSelect" style="flex:1;min-width:140px;font-size:11px;" onchange="loadPlanById(this.value)">
+            <option value="">Open saved plan…</option>
+          </select>
+          <button class="btn-secondary" style="font-size:11px;padding:5px 9px;" onclick="newPlan()">＋ New plan</button>
+          <button class="btn-secondary" style="font-size:11px;padding:5px 9px;color:var(--red,#c0392b);" onclick="deletePlan()">Delete</button>
+        </div>
+        <div id="dayStrip" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px;"></div>
+      </div>
       <!-- Embedded mini search for adding foods directly from log tab -->
       <div class="search-area" style="background:var(--surface2);">
         <div class="search-wrap">
@@ -1242,8 +1258,10 @@ Olive Oil 25 ml"></textarea>
       <div class="targets-header-row">
         <span style="font-size:9px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.8px;">Patient Targets / day</span>
         <div style="display:flex;gap:5px;">
+          <button class="btn-secondary" id="scopeDayBtn" style="font-size:9px;padding:2px 7px;" onclick="setAnalysisScope('day')" title="Analyse the currently open day">This day</button>
+          <button class="btn-secondary" id="scopePlanBtn" style="font-size:9px;padding:2px 7px;" onclick="setAnalysisScope('plan')" title="Average across all days of the plan">Plan avg</button>
           <button class="btn-secondary" style="font-size:9px;padding:2px 7px;" onclick="clearTargets()">Clear</button>
-          <button class="btn-secondary" onclick="window.print()" style="font-size:9px;padding:2px 7px;">🖨</button>
+          <button class="btn-secondary" onclick="printPlanHandout()" style="font-size:9px;padding:2px 7px;" title="Print patient handout">🖨</button>
         </div>
       </div>
       <div class="targets-row">
@@ -4264,11 +4282,233 @@ function removeLogItem(meal, idx) {
 }
 
 function clearLog() {
-  if (!confirm('Clear all logged foods?')) return;
-  mealLog = {};
+  if (!confirm('Clear all foods from this day?')) return;
+  currentPlan.days[currentDayIdx].meals = {};
+  mealLog = currentPlan.days[currentDayIdx].meals;
   renderMealLog();
   updateAnalysis();
 }
+
+// ════════════════════════════════════════════════
+// MULTI-DAY PATIENT PLANS
+// The Plans tab default state is one unsaved day — the old Meal Log workflow
+// unchanged. Plans persist to ns_plans with slim food refs (db:code) that are
+// re-resolved on load; USDA/custom foods carry a nutrient snapshot instead.
+// The current plan autosaves on every change (survives refresh/crash).
+// ════════════════════════════════════════════════
+let currentPlan = null;
+let currentDayIdx = 0;
+let analysisScope = 'day';   // 'day' | 'plan'
+
+function newBlankDay(n){ return { label: 'Day ' + n, meals: {} }; }
+function newBlankPlan(){
+  return { id: 'pl_' + Date.now(), name: '', patient: '', dietLabel: '', notes: '',
+    created: new Date().toISOString(), modified: new Date().toISOString(),
+    targets: {}, days: [newBlankDay(1)] };
+}
+
+let _foodIndex = null;
+function foodIndex(){
+  if (!_foodIndex) {
+    _foodIndex = new Map();
+    [].concat(IFCT, AFCD, AUSNUT, (typeof NZFCD !== 'undefined' ? NZFCD : []))
+      .forEach(f => { if (f && f.code) _foodIndex.set((f.db || '') + ':' + f.code, f); });
+  }
+  return _foodIndex;
+}
+
+function slimItem(it){
+  const f = it.food || {};
+  const out = { name: f.name, grams: it.grams, portionLabel: it.portionLabel };
+  const staticDb = ['ifct','afcd','ausnut','nz'].includes(f.db);
+  if (staticDb && f.code) out.ref = { db: f.db, code: f.code };
+  else {
+    if (f.db && f.code) out.ref = { db: f.db, code: f.code };  // try to re-resolve customs
+    out.snap = {}; NUTRIENT_KEYS.forEach(k => out.snap[k] = parseFloat(f[k]) || 0);
+  }
+  return out;
+}
+function fattenItem(s){
+  let food = null;
+  if (s.ref) {
+    food = foodIndex().get(s.ref.db + ':' + s.ref.code) || customFoods.find(x => x.code === s.ref.code) || null;
+  }
+  if (!food && s.snap) {
+    food = Object.assign({ name: s.name || '(saved values)', cat: '(saved values)', db: 'custom' }, s.snap);
+  }
+  if (!food) { food = _zeroFood(s.name || '(missing food)'); }
+  return { food, grams: s.grams, portionLabel: s.portionLabel, _missing: !!food._unmatched };
+}
+
+function planToStorage(p){
+  return Object.assign({}, p, { days: p.days.map(d => ({ label: d.label,
+    meals: Object.fromEntries(Object.entries(d.meals).map(([m, its]) => [m, its.map(slimItem)])) })) });
+}
+function planFromStorage(sp){
+  return Object.assign({}, sp, { days: (sp.days || []).map(d => ({ label: d.label,
+    meals: Object.fromEntries(Object.entries(d.meals || {}).map(([m, its]) => [m, (its || []).map(fattenItem)])) })) });
+}
+
+function loadPlansIndex(){ try { return JSON.parse(localStorage.getItem('ns_plans')) || []; } catch(e){ return []; } }
+
+let _autosaveTimer = null;
+function autosavePlan(){
+  clearTimeout(_autosaveTimer);
+  _autosaveTimer = setTimeout(() => {
+    if (!currentPlan) return;
+    currentPlan.modified = new Date().toISOString();
+    currentPlan.targets = {};
+    ['kcal','prot','fat','cho','fibre'].forEach(k => {
+      const v = parseFloat(document.getElementById('tgt_' + k)?.value);
+      if (v) currentPlan.targets[k] = v;
+    });
+    const arr = loadPlansIndex();
+    const i = arr.findIndex(p => p.id === currentPlan.id);
+    const sp = planToStorage(currentPlan);
+    if (i >= 0) arr[i] = sp; else arr.push(sp);
+    nsSave('ns_plans', arr);
+    renderPlanLoadSelect();
+  }, 600);
+}
+
+function planFieldChange(){
+  if (!currentPlan) return;
+  currentPlan.name = document.getElementById('planName').value.trim();
+  currentPlan.patient = document.getElementById('planPatient').value.trim();
+  currentPlan.dietLabel = document.getElementById('planDiet').value.trim();
+  autosavePlan();
+}
+
+function switchPlanDay(i){
+  if (!currentPlan || !currentPlan.days[i]) return;
+  currentDayIdx = i;
+  mealLog = currentPlan.days[i].meals;
+  renderDayStrip();
+  renderMealLog();
+  updateAnalysis();
+}
+
+function addPlanDay(){
+  currentPlan.days.push(newBlankDay(currentPlan.days.length + 1));
+  switchPlanDay(currentPlan.days.length - 1);
+  autosavePlan();
+}
+
+function duplicatePlanDay(){
+  const d = currentPlan.days[currentDayIdx];
+  const slim = { label: d.label, meals: Object.fromEntries(Object.entries(d.meals).map(([m, its]) => [m, its.map(slimItem)])) };
+  const copy = { label: 'Day ' + (currentPlan.days.length + 1),
+    meals: Object.fromEntries(Object.entries(slim.meals).map(([m, its]) => [m, its.map(fattenItem)])) };
+  currentPlan.days.splice(currentDayIdx + 1, 0, copy);
+  currentPlan.days.forEach((dd, i) => { if (/^Day \d+$/.test(dd.label)) dd.label = 'Day ' + (i + 1); });
+  switchPlanDay(currentDayIdx + 1);
+  autosavePlan();
+}
+
+function deletePlanDay(){
+  if (currentPlan.days.length <= 1) { showToast('A plan needs at least one day'); return; }
+  if (!confirm('Delete ' + currentPlan.days[currentDayIdx].label + ' and its foods?')) return;
+  currentPlan.days.splice(currentDayIdx, 1);
+  currentPlan.days.forEach((dd, i) => { if (/^Day \d+( \(copy\))?$/.test(dd.label)) dd.label = 'Day ' + (i + 1); });
+  switchPlanDay(Math.max(0, currentDayIdx - 1));
+  autosavePlan();
+}
+
+function renamePlanDay(){
+  const d = currentPlan.days[currentDayIdx];
+  const label = prompt('Day label:', d.label);
+  if (label && label.trim()) { d.label = label.trim(); renderDayStrip(); autosavePlan(); }
+}
+
+function newPlan(){
+  currentPlan = newBlankPlan();
+  currentDayIdx = 0;
+  mealLog = currentPlan.days[0].meals;
+  ['planName','planPatient','planDiet'].forEach(id => document.getElementById(id).value = '');
+  document.getElementById('planLoadSelect').value = '';
+  renderDayStrip(); renderMealLog(); updateAnalysis();
+  showToast('New blank plan');
+}
+
+function loadPlanById(id){
+  if (!id) return;
+  const sp = loadPlansIndex().find(p => p.id === id);
+  if (!sp) { showToast('Plan not found'); return; }
+  currentPlan = planFromStorage(sp);
+  currentDayIdx = 0;
+  mealLog = currentPlan.days[0].meals;
+  document.getElementById('planName').value = currentPlan.name || '';
+  document.getElementById('planPatient').value = currentPlan.patient || '';
+  document.getElementById('planDiet').value = currentPlan.dietLabel || '';
+  ['kcal','prot','fat','cho','fibre'].forEach(k => {
+    const e = document.getElementById('tgt_' + k);
+    if (e) e.value = currentPlan.targets && currentPlan.targets[k] ? currentPlan.targets[k] : '';
+  });
+  const missing = currentPlan.days.reduce((n, d) => n + Object.values(d.meals).flat().filter(it => it._missing).length, 0);
+  renderDayStrip(); renderMealLog(); updateAnalysis();
+  showToast('Loaded: ' + (currentPlan.name || 'Untitled plan') + (missing ? ' — ' + missing + ' item(s) could not be re-resolved' : ''));
+}
+
+function deletePlan(){
+  if (!currentPlan) return;
+  if (!confirm('Delete plan "' + (currentPlan.name || 'Untitled') + '" permanently?')) return;
+  const arr = loadPlansIndex().filter(p => p.id !== currentPlan.id);
+  nsSave('ns_plans', arr);
+  renderPlanLoadSelect();
+  newPlan();
+}
+
+function renderPlanLoadSelect(){
+  const sel = document.getElementById('planLoadSelect'); if (!sel) return;
+  const arr = loadPlansIndex().sort((a,b) => (b.modified||'').localeCompare(a.modified||''));
+  const cur = sel.value;
+  sel.innerHTML = '<option value="">Open saved plan…</option>' +
+    arr.map(p => `<option value="${p.id}" ${currentPlan && p.id===currentPlan.id?'selected':''}>${(p.name||'Untitled plan')}${p.patient?' · '+p.patient:''} (${p.days.length}d)</option>`).join('');
+  if (!currentPlan || !arr.some(p=>p.id===currentPlan.id)) sel.value = cur === '' ? '' : sel.value;
+}
+
+function renderDayStrip(){
+  const el = document.getElementById('dayStrip'); if (!el || !currentPlan) return;
+  el.innerHTML = currentPlan.days.map((d, i) =>
+    `<button class="preset-btn" style="${i===currentDayIdx?'background:var(--accent);color:#fff;border-color:var(--accent);':''}" onclick="switchPlanDay(${i})" ondblclick="renamePlanDay()" title="Click to open · double-click to rename">${d.label}</button>`
+  ).join('') +
+  `<button class="preset-btn" style="border-style:dashed;" onclick="addPlanDay()" title="Add a day">＋ day</button>` +
+  `<button class="preset-btn" style="border-style:dashed;" onclick="duplicatePlanDay()" title="Duplicate this day">⧉</button>` +
+  (currentPlan.days.length > 1 ? `<button class="preset-btn" style="border-style:dashed;color:var(--red,#c0392b);" onclick="deletePlanDay()" title="Delete this day">✕</button>` : '');
+}
+
+function initPlans(){
+  const arr = loadPlansIndex();
+  if (arr.length) {
+    arr.sort((a,b) => (b.modified||'').localeCompare(a.modified||''));
+    try { currentPlan = planFromStorage(arr[0]); } catch(e){ currentPlan = newBlankPlan(); }
+  } else currentPlan = newBlankPlan();
+  currentDayIdx = 0;
+  mealLog = currentPlan.days[0].meals;
+  const n = document.getElementById('planName'), p = document.getElementById('planPatient'), dl = document.getElementById('planDiet');
+  if (n) n.value = currentPlan.name || '';
+  if (p) p.value = currentPlan.patient || '';
+  if (dl) dl.value = currentPlan.dietLabel || '';
+  ['kcal','prot','fat','cho','fibre'].forEach(k => {
+    const e = document.getElementById('tgt_' + k);
+    if (e && currentPlan.targets && currentPlan.targets[k]) e.value = currentPlan.targets[k];
+  });
+  renderPlanLoadSelect();
+  renderDayStrip();
+  renderMealLog();
+  updateAnalysis();
+}
+
+function setAnalysisScope(scope){
+  analysisScope = scope;
+  const style = (btn, on) => { if (!btn) return; btn.style.background = on ? 'var(--accent)' : ''; btn.style.color = on ? '#fff' : ''; };
+  style(document.getElementById('scopeDayBtn'), scope==='day');
+  style(document.getElementById('scopePlanBtn'), scope==='plan');
+  updateAnalysis();
+}
+
+// Phase 8 print handout — placeholder until buildPrintSheet ships
+function printPlanHandout(){ if (typeof buildPrintSheet === 'function') { buildPrintSheet(currentPlan); window.print(); } else window.print(); }
 
 function clearTargets() {
   ['kcal','prot','fat','cho','fibre'].forEach(k => document.getElementById('tgt_'+k).value = '');
@@ -5117,7 +5357,7 @@ function analyseRecipe() {
   const name = document.getElementById('recipeName').value || 'Recipe';
   const servingSize = document.getElementById('recipeServingSize').value.trim();
   // Treat recipe as a meal log entry for analysis
-  const prevLog = {...mealLog};
+  const prevLog = mealLog;   // keep the original reference — mealLog aliases the current plan day
   mealLog = { recipe: recipeItems.map(i => ({food:i.food, grams:i.grams/servings, retention:recipeItemRetention(i)})) };
   const sizeNote = servingSize ? ` of ${servingSize}` : '';
   updateAnalysis(name + ` (per serving${sizeNote}, ${servings} servings total)`);
@@ -5275,12 +5515,22 @@ function computeTotals(items) {
 }
 
 function updateAnalysis(label=null) {
-  const allItems = Object.values(mealLog).flat();
+  let allItems;
+  let scopeNote = '';
+  if (!label && analysisScope === 'plan' && currentPlan && currentPlan.days.length > 1) {
+    const n = currentPlan.days.length;
+    allItems = currentPlan.days.flatMap(d => Object.values(d.meals).flat()
+      .map(it => ({ food: it.food, grams: it.grams / n, retention: it.retention })));
+    scopeNote = ` · plan average over ${n} days`;
+  } else {
+    allItems = Object.values(mealLog).flat();
+  }
   const hasData = allItems.length > 0;
 
   document.getElementById('emptyState').style.display = hasData ? 'none' : 'flex';
   document.getElementById('macroSummary').style.display = hasData ? 'block' : 'none';
 
+  if (!label && currentPlan) autosavePlan();
   if (!hasData && !label) { updateDailyTotal(); return; }
 
   const totals = computeTotals(allItems);
@@ -5297,7 +5547,7 @@ function updateAnalysis(label=null) {
   const totalKcal = Math.round(totals.kcal);
   document.getElementById('rightSub').textContent = label
     ? `${label} — ${totalKcal} kcal total`
-    : `${allItems.length} food${allItems.length!==1?'s':''} logged · ${totalKcal} kcal total`;
+    : `${allItems.length} food${allItems.length!==1?'s':''} logged · ${totalKcal} kcal${scopeNote || ' total'}`;
 
   // Macro cards
   const macros = [
@@ -5552,6 +5802,8 @@ window.addEventListener('load', () => {
   const ys = document.getElementById('recipeYieldSelect');
   if (ys) ys.innerHTML = '<option value="">estimate from cooking type…</option>' +
     YIELD_FACTORS.map((y,i) => `<option value="${i}">${y.label} (×${y.factor})</option>`).join('');
+  initPlans();
+  setAnalysisScope('day');
   // PWA: register service worker on https only (skips file:// and local dev)
   if (location.protocol === 'https:' && 'serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(()=>{});
