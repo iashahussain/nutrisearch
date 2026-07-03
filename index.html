@@ -3408,21 +3408,221 @@ const UNIT_TO_G = {
 // (search, log, recipe) alongside the generic g/cup/tbsp units.
 //
 // Two sources, merged at lookup time:
-//   1. STARTER_MEASURES — a small built-in set for common staples, matched
+//   1. FOOD_MEASURES — the built-in measures library, matched
 //      by a keyword in the food name (estimates; user can override).
 //   2. userMeasures — measures the user defines, saved to localStorage,
 //      keyed by food code (or name). These take precedence.
 // ════════════════════════════════════════════════
-const STARTER_MEASURES = {
-  'banana':       [{label:'1 medium', g:118}, {label:'1 small', g:90}, {label:'1 large', g:136}],
-  'egg, chicken': [{label:'1 large egg', g:50}, {label:'1 medium egg', g:44}],
-  'bread':        [{label:'1 slice', g:30}],
-  'rice, cooked': [{label:'1 cup cooked', g:158}, {label:'\u00bd cup cooked', g:79}],
-  'rice, boiled': [{label:'1 cup cooked', g:158}, {label:'\u00bd cup cooked', g:79}],
-  'apple':        [{label:'1 medium', g:182}, {label:'1 small', g:149}],
-  'roti':         [{label:'1 roti', g:45}],
-  'chapati':      [{label:'1 chapati', g:45}],
-};
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+// FOOD MEASURES LIBRARY
+// Ordered rules \u2014 the FIRST matching rule supplies the measures, so put
+// specific rules before generic ones. match:
+//   any: at least one substring present in the lowercased food name
+//   all: every entry present (entries may be 'a|b' alternations)
+//   not: none of these present
+//   cat: substring of the food category (optional)
+// Gram weights follow AUSNUT/USDA household-measure conventions.
+// Maldivian/South-Asian block values are curated estimates \u2014 review welcome.
+// \u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550\u2550
+const FOOD_MEASURES = [
+  // \u2500\u2500 Maldivian & South Asian staples (most specific first) \u2500\u2500
+  { id:'roshi',      match:{any:['roshi','chapati','chapathi']},                          measures:[{label:'1 roshi/chapati', g:40},{label:'1 large', g:60}] },
+  { id:'roti',       match:{any:['roti '],  not:['carrot','parotta']},                    measures:[{label:'1 roti', g:45},{label:'1 large roti', g:60}] },
+  { id:'paratha',    match:{any:['paratha','parotta']},                                   measures:[{label:'1 paratha', g:80}] },
+  { id:'naan',       match:{any:['naan']},                                                measures:[{label:'1 naan', g:90},{label:'\u00bd naan', g:45}] },
+  { id:'dosa',       match:{any:['dosa']},                                                measures:[{label:'1 plain dosa', g:80},{label:'1 masala dosa', g:180}] },
+  { id:'idli',       match:{any:['idli']},                                                measures:[{label:'1 idli', g:40}] },
+  { id:'puri',       match:{any:['puri','poori']},                                        measures:[{label:'1 puri', g:25}] },
+  { id:'garudhiya',  match:{any:['garudhiya','fish soup','tuna soup']},                   measures:[{label:'1 bowl', g:250},{label:'1 ladle', g:120}] },
+  { id:'mashuni',    match:{any:['mas huni','mashuni']},                                  measures:[{label:'1 serve (with roshi)', g:80},{label:'1 tbsp', g:20}] },
+  { id:'rihaakuru',  match:{any:['rihaakuru','rihakuru']},                                measures:[{label:'1 tsp', g:7},{label:'1 tbsp', g:20}] },
+  { id:'boakibaa',   match:{any:['boakibaa','boakiba']},                                  measures:[{label:'1 piece', g:80}] },
+  { id:'hedhikaa',   match:{any:['bajiya','gulha','keemia','samosa','spring roll']},      measures:[{label:'1 piece (small)', g:30},{label:'1 piece (large)', g:55}] },
+  { id:'curry',      match:{any:['curry','korma','masala','rendang'], not:['powder','paste','leaves','leaf']}, measures:[{label:'1 ladle', g:120},{label:'1 cup', g:240},{label:'\u00bd cup', g:120}] },
+  { id:'dhal-ck',    match:{any:['dhal','dal ','daal','lentil soup'], all:['cooked|boiled|curry|soup']}, measures:[{label:'1 ladle', g:120},{label:'1 cup cooked', g:198},{label:'\u00bd cup cooked', g:99}] },
+  { id:'biryani',    match:{any:['biryani','biriyani','pilau','pulao','fried rice','nasi goreng']}, measures:[{label:'1 cup', g:180},{label:'1 plate', g:350}] },
+  { id:'congee',     match:{any:['congee','porridge, rice','rice porridge']},             measures:[{label:'1 bowl', g:250}] },
+  { id:'breadfruit', match:{any:['breadfruit']},                                          measures:[{label:'1 slice', g:60},{label:'1 cup pieces', g:220}] },
+  { id:'cassava',    match:{any:['cassava','tapioca'], not:['pearl','sago']},             measures:[{label:'1 piece', g:100},{label:'1 cup pieces', g:150}] },
+  { id:'taro',       match:{any:['taro']},                                                measures:[{label:'1 piece', g:100}] },
+  { id:'sago',       match:{any:['sago','tapioca pearl']},                                measures:[{label:'1 bowl pudding', g:200},{label:'1 tbsp dry', g:12}] },
+  { id:'betel',      match:{any:['betel']},                                               measures:[{label:'1 leaf', g:2}] },
+
+  // \u2500\u2500 Rice / grains / pasta \u2500\u2500
+  { id:'rice-ck',    match:{any:['rice'], all:['boiled|cooked|steamed'], not:['fried','flour','paper','cake','pudding','noodle','vermicelli']}, measures:[{label:'1 cup cooked', g:158},{label:'\u00bd cup cooked', g:79},{label:'1 rice ladle', g:100},{label:'1 plate', g:280}] },
+  { id:'rice-raw',   match:{any:['rice'], all:['raw|uncooked|dry|milled'], not:['flour','paper']}, measures:[{label:'1 cup raw', g:185},{label:'\u00bd cup raw', g:93}] },
+  { id:'pasta-ck',   match:{any:['pasta','spaghetti','macaroni','penne','noodle'], all:['boiled|cooked']}, measures:[{label:'1 cup cooked', g:140},{label:'\u00bd cup cooked', g:70}] },
+  { id:'pasta-raw',  match:{any:['pasta','spaghetti','macaroni','noodle'], all:['raw|dry|dried']}, measures:[{label:'1 serve dry', g:75}] },
+  { id:'oats',       match:{any:['oats','oatmeal'], not:['biscuit','bar']},               measures:[{label:'\u00bc cup dry', g:25},{label:'\u00bd cup dry', g:50},{label:'1 bowl cooked', g:250}] },
+  { id:'porridge',   match:{any:['porridge'], not:['rice']},                              measures:[{label:'1 bowl', g:250},{label:'\u00bd bowl', g:125}] },
+  { id:'cereal-flake', match:{any:['corn flakes','cornflakes','rice bubbles','special k','flakes']}, measures:[{label:'1 cup', g:30},{label:'1 bowl', g:45}] },
+  { id:'muesli',     match:{any:['muesli','granola']},                                    measures:[{label:'\u00bd cup', g:55},{label:'\u00bc cup', g:28}] },
+  { id:'weetbix',    match:{any:['weet-bix','weetbix','wheat biscuit']},                  measures:[{label:'1 biscuit', g:17},{label:'2 biscuits', g:34}] },
+  { id:'quinoa',     match:{any:['quinoa'], all:['cooked|boiled']},                       measures:[{label:'1 cup cooked', g:185},{label:'\u00bd cup cooked', g:93}] },
+  { id:'couscous',   match:{any:['couscous'], all:['cooked|prepared']},                   measures:[{label:'1 cup cooked', g:157}] },
+
+  // \u2500\u2500 Breads \u2500\u2500
+  { id:'bread-slice', match:{any:['bread'], not:['crumb','fried','fruit','garlic','fruit']}, measures:[{label:'1 slice sandwich', g:30},{label:'1 thick slice', g:40},{label:'2 slices', g:60}] },
+  { id:'roll',       match:{any:['roll, bread','bread roll','dinner roll','bun'], not:['sausage','cinnamon']}, measures:[{label:'1 roll/bun', g:60}] },
+  { id:'pita',       match:{any:['pita','pitta','lebanese bread']},                       measures:[{label:'1 pocket', g:60},{label:'\u00bd pocket', g:30}] },
+  { id:'tortilla',   match:{any:['tortilla','wrap ','flatbread']},                        measures:[{label:'1 wrap', g:60}] },
+  { id:'croissant',  match:{any:['croissant']},                                           measures:[{label:'1 croissant', g:60}] },
+  { id:'crumpet',    match:{any:['crumpet']},                                             measures:[{label:'1 crumpet', g:50}] },
+  { id:'muffin-eng', match:{any:['muffin, english','english muffin']},                    measures:[{label:'1 muffin', g:65}] },
+  { id:'toast',      match:{any:['toast'], not:['french']},                               measures:[{label:'1 slice', g:26}] },
+
+  // \u2500\u2500 Dairy & eggs \u2500\u2500
+  { id:'milk',       match:{any:['milk'], not:['coconut','soy','almond','oat','rice','chocolate','condensed','powder','shake','breast','human','with milk','in milk','mashed','custard','pudding','sauce']}, measures:[{label:'1 glass', g:250},{label:'1 cup', g:250},{label:'dash (in tea)', g:30}] },
+  { id:'milk-alt',   match:{any:['milk, soy','soy milk','almond milk','oat milk','soy beverage']}, measures:[{label:'1 glass', g:250},{label:'1 cup', g:250}] },
+  { id:'milk-cond',  match:{any:['condensed milk']},                                      measures:[{label:'1 tbsp', g:20},{label:'1 tsp', g:7}] },
+  { id:'milk-powder',match:{any:['milk powder','powdered milk','milk, dried']},           measures:[{label:'1 tbsp', g:8},{label:'1 scoop', g:9}] },
+  { id:'coconut-milk',match:{any:['coconut milk','coconut cream']},                       measures:[{label:'\u00bd cup', g:125},{label:'1 cup', g:250},{label:'1 tbsp', g:15}] },
+  { id:'yoghurt',    match:{any:['yoghurt','yogurt','curd']},                             measures:[{label:'1 small tub', g:170},{label:'1 large tub', g:200},{label:'\u00bd cup', g:130},{label:'1 tbsp', g:20}] },
+  { id:'cheese-slice',match:{any:['cheese'], all:['slice|sliced|processed|cheddar|edam|gouda'], not:['cottage','ricotta','cream']}, measures:[{label:'1 slice', g:21},{label:'1 cube (2cm)', g:10},{label:'\u00bc cup grated', g:26}] },
+  { id:'cheese-soft',match:{any:['cottage cheese','ricotta','cream cheese']},             measures:[{label:'1 tbsp', g:22},{label:'\u00bc cup', g:56}] },
+  { id:'paneer',     match:{any:['paneer']},                                              measures:[{label:'1 cube', g:15},{label:'\u00bd cup cubes', g:75}] },
+  { id:'butter',     match:{any:['butter'], not:['peanut','nut','apple','fruit','butternut','buttermilk','bean']}, measures:[{label:'1 tsp', g:5},{label:'1 tbsp', g:14},{label:'thin spread (1 slice)', g:5},{label:'1 pat/portion', g:7}] },
+  { id:'margarine',  match:{any:['margarine','table spread']},                            measures:[{label:'1 tsp', g:5},{label:'thin spread (1 slice)', g:5},{label:'1 portion pack', g:10}] },
+  { id:'cream',      match:{any:['cream'], not:['ice','cheese','coconut','sour','salad']},measures:[{label:'1 tbsp', g:20},{label:'\u00bc cup', g:60}] },
+  { id:'icecream',   match:{any:['ice cream','ice-cream','icecream','gelato']},           measures:[{label:'1 scoop', g:50},{label:'2 scoops', g:100},{label:'1 cup', g:130}] },
+  { id:'egg',        match:{any:['egg'], all:['chicken|hen|boiled|fried|poached|scrambled|raw|whole'], not:['plant','noodle','roll','fruit']}, measures:[{label:'1 large egg', g:50},{label:'1 medium egg', g:44},{label:'1 small egg', g:38},{label:'2 eggs', g:100}] },
+  { id:'egg-white',  match:{any:['egg white']},                                           measures:[{label:'1 egg white', g:33}] },
+  { id:'omelette',   match:{any:['omelette','omelet']},                                   measures:[{label:'1 omelette (2-egg)', g:120}] },
+
+  // \u2500\u2500 Meat, fish, poultry \u2500\u2500
+  { id:'chicken-breast', match:{any:['chicken'], all:['breast']},                         measures:[{label:'1 small breast', g:120},{label:'1 medium breast', g:160},{label:'\u00bd breast', g:80},{label:'1 cup diced', g:140}] },
+  { id:'chicken-piece',  match:{any:['chicken'], all:['thigh|drumstick|leg|wing']},       measures:[{label:'1 drumstick (meat)', g:60},{label:'1 thigh (meat)', g:90},{label:'1 wing', g:35}] },
+  { id:'chicken-gen',match:{any:['chicken'], not:['soup','stock','noodle','flavour']},    measures:[{label:'1 cup diced', g:140},{label:'palm-size serve', g:100}] },
+  { id:'fish-fillet',match:{any:['fish','snapper','tuna','salmon','cod','tilapia','mackerel','barramundi'], all:['fillet|grilled|baked|steamed|fried|poached|raw'], not:['canned','finger','cake','ball','sauce']}, measures:[{label:'1 small fillet', g:100},{label:'1 medium fillet', g:150},{label:'palm-size serve', g:100}] },
+  { id:'fish-can',   match:{any:['tuna','sardine','salmon','mackerel'], all:['canned|in brine|in oil|in springwater|drained']}, measures:[{label:'1 small can drained', g:70},{label:'1 large can drained', g:170},{label:'\u00bc cup', g:45}] },
+  { id:'prawn',      match:{any:['prawn','shrimp']},                                      measures:[{label:'1 medium prawn', g:10},{label:'6 prawns', g:60},{label:'1 cup', g:130}] },
+  { id:'mince',      match:{any:['mince','ground beef','ground meat']},                   measures:[{label:'\u00bd cup cooked', g:80},{label:'1 cup cooked', g:160}] },
+  { id:'steak',      match:{any:['steak','beef, rump','beef, sirloin','beef, fillet']},   measures:[{label:'1 small steak', g:120},{label:'1 medium steak', g:180}] },
+  { id:'sausage',    match:{any:['sausage','frankfurt','hot dog']},                       measures:[{label:'1 thin sausage', g:50},{label:'1 thick sausage', g:80}] },
+  { id:'bacon',      match:{any:['bacon']},                                               measures:[{label:'1 rasher (cooked)', g:25},{label:'2 rashers', g:50}] },
+  { id:'ham',        match:{any:['ham,','ham ']},                                         measures:[{label:'1 slice', g:25},{label:'2 slices', g:50}] },
+  { id:'meatball',   match:{any:['meatball','kofta']},                                    measures:[{label:'1 meatball', g:30},{label:'4 meatballs', g:120}] },
+  { id:'lamb-chop',  match:{any:['lamb'], all:['chop|cutlet']},                           measures:[{label:'1 chop (meat)', g:50}] },
+
+  // \u2500\u2500 Legumes, nuts, tofu \u2500\u2500
+  { id:'legume-ck',  match:{any:['chickpea','chick pea','kidney bean','black bean','butter bean','lima bean','cannellini','lentil','mung','black-eye'], all:['cooked|boiled|canned|drained']}, measures:[{label:'\u00bd cup cooked', g:90},{label:'1 cup cooked', g:180},{label:'1 small can drained', g:240}] },
+  { id:'baked-beans',match:{any:['baked beans']},                                         measures:[{label:'\u00bd cup', g:130},{label:'1 small can (220g)', g:220},{label:'1 cup', g:260}] },
+  { id:'tofu',       match:{any:['tofu','bean curd']},                                    measures:[{label:'1 slice', g:80},{label:'\u00bd cup cubes', g:125}] },
+  { id:'nuts',       match:{any:['almond','cashew','peanut','walnut','pistachio','macadamia','mixed nuts'], not:['butter','oil','milk','sauce','satay']}, measures:[{label:'small handful (30g)', g:30},{label:'10 nuts', g:12},{label:'\u00bc cup', g:38}] },
+  { id:'seeds',      match:{any:['chia','flaxseed','linseed','sunflower seed','pumpkin seed','sesame seed']}, measures:[{label:'1 tsp', g:4},{label:'1 tbsp', g:12}] },
+
+  // \u2500\u2500 Vegetables \u2500\u2500
+  { id:'potato',     match:{any:['potato'], not:['sweet','chips','crisps','fried','mash','wedge']}, measures:[{label:'1 small potato', g:80},{label:'1 medium potato', g:150},{label:'1 large potato', g:220}] },
+  { id:'potato-mash',match:{any:['potato'], all:['mash']},                                measures:[{label:'\u00bd cup', g:105},{label:'1 scoop', g:120},{label:'1 cup', g:210}] },
+  { id:'chips-hot',  match:{any:['chips, potato','hot chips','french fries','potato, fried','wedges']}, measures:[{label:'small serve', g:100},{label:'regular serve', g:150},{label:'10 chips', g:60}] },
+  { id:'sweet-potato',match:{any:['sweet potato','kumara']},                              measures:[{label:'\u00bd cup pieces', g:80},{label:'1 medium', g:130}] },
+  { id:'pumpkin',    match:{any:['pumpkin'], not:['seed','soup']},                        measures:[{label:'\u00bd cup pieces', g:85},{label:'1 wedge', g:100}] },
+  { id:'tomato',     match:{any:['tomato'], not:['sauce','paste','canned','juice','sun','cherry','soup']}, measures:[{label:'1 medium tomato', g:120},{label:'1 small tomato', g:90},{label:'\u00bd tomato', g:60},{label:'2 slices', g:30}] },
+  { id:'tomato-cherry', match:{any:['cherry tomato','tomato, cherry']},                   measures:[{label:'5 cherry tomatoes', g:85}] },
+  { id:'onion',      match:{any:['onion'], not:['spring','green','pickled','powder','ring']}, measures:[{label:'1 medium onion', g:110},{label:'\u00bd onion', g:55},{label:'1 tbsp chopped', g:10}] },
+  { id:'spring-onion',match:{any:['spring onion','green onion','scallion']},              measures:[{label:'1 stalk', g:15}] },
+  { id:'carrot',     match:{any:['carrot'], not:['juice','cake']},                        measures:[{label:'1 medium carrot', g:70},{label:'\u00bd cup sliced', g:65},{label:'1 cup grated', g:110}] },
+  { id:'cucumber',   match:{any:['cucumber']},                                            measures:[{label:'\u00bd cup sliced', g:60},{label:'1 small cucumber', g:150},{label:'5 slices', g:25}] },
+  { id:'capsicum',   match:{any:['capsicum','bell pepper','sweet pepper']},               measures:[{label:'\u00bd capsicum', g:75},{label:'1 whole', g:150},{label:'\u00bc cup chopped', g:37}] },
+  { id:'lettuce',    match:{any:['lettuce','salad greens','rocket','mesclun']},           measures:[{label:'1 cup', g:35},{label:'1 leaf', g:8}] },
+  { id:'spinach-ck', match:{any:['spinach','silverbeet','kale'], all:['boiled|cooked|steamed']}, measures:[{label:'\u00bd cup cooked', g:90},{label:'1 cup cooked', g:180}] },
+  { id:'spinach-raw',match:{any:['spinach','kale'], not:['boiled','cooked','steamed']},   measures:[{label:'1 cup raw', g:30},{label:'2 cups raw', g:60}] },
+  { id:'broccoli',   match:{any:['broccoli']},                                            measures:[{label:'\u00bd cup florets', g:45},{label:'1 cup florets', g:90},{label:'2 florets', g:25}] },
+  { id:'cauliflower',match:{any:['cauliflower']},                                         measures:[{label:'\u00bd cup florets', g:50},{label:'1 cup florets', g:100}] },
+  { id:'cabbage',    match:{any:['cabbage']},                                             measures:[{label:'\u00bd cup shredded', g:45},{label:'1 cup shredded', g:90}] },
+  { id:'beans-green',match:{any:['green bean','french bean','snake bean']},               measures:[{label:'\u00bd cup', g:60},{label:'6 beans', g:35}] },
+  { id:'peas',       match:{any:['peas,','pea,','green peas'], not:['chick','split','snow']}, measures:[{label:'\u00bd cup', g:80},{label:'2 tbsp', g:30}] },
+  { id:'corn',       match:{any:['corn,','sweet corn','sweetcorn'], not:['flakes','flour','chip','popcorn']}, measures:[{label:'\u00bd cup kernels', g:80},{label:'1 cob', g:100}] },
+  { id:'mushroom',   match:{any:['mushroom']},                                            measures:[{label:'\u00bd cup sliced', g:45},{label:'3 button mushrooms', g:30},{label:'1 cup sliced', g:90}] },
+  { id:'eggplant',   match:{any:['eggplant','aubergine','brinjal']},                      measures:[{label:'\u00bd cup pieces', g:50},{label:'2 slices', g:60}] },
+  { id:'okra',       match:{any:['okra','lady finger','ladies finger']},                  measures:[{label:'5 pods', g:50},{label:'\u00bd cup sliced', g:50}] },
+  { id:'zucchini',   match:{any:['zucchini','courgette']},                                measures:[{label:'\u00bd cup sliced', g:65},{label:'1 medium', g:195}] },
+  { id:'beetroot',   match:{any:['beetroot','beet,']},                                    measures:[{label:'2 slices', g:30},{label:'\u00bd cup', g:85}] },
+  { id:'celery',     match:{any:['celery']},                                              measures:[{label:'1 stalk', g:40}] },
+  { id:'avocado',    match:{any:['avocado']},                                             measures:[{label:'\u00bc avocado', g:45},{label:'\u00bd avocado', g:90},{label:'1 tbsp mashed', g:20}] },
+  { id:'mixed-veg',  match:{any:['mixed vegetable','vegetables, mixed','stir-fry vegetable']}, measures:[{label:'\u00bd cup', g:80},{label:'1 cup', g:160}] },
+  { id:'garlic',     match:{any:['garlic'], not:['bread','powder','sauce']},              measures:[{label:'1 clove', g:3},{label:'1 tsp minced', g:5}] },
+  { id:'ginger',     match:{any:['ginger'], not:['bread','ale','beer','biscuit']},        measures:[{label:'1 tsp grated', g:5},{label:'1 slice', g:2}] },
+  { id:'chilli',     match:{any:['chilli','chili pepper'], not:['sauce','powder','con carne','flakes']}, measures:[{label:'1 small chilli', g:5},{label:'1 tsp chopped', g:5}] },
+
+  // \u2500\u2500 Fruit \u2500\u2500
+  { id:'banana',     match:{any:['banana'], not:['chip','bread','cake','flower']},        measures:[{label:'1 medium banana', g:118},{label:'1 small banana', g:90},{label:'1 large banana', g:136},{label:'1 Maldivian small banana', g:60}] },
+  { id:'apple',      match:{any:['apple'], not:['juice','pie','sauce','dried','pine','custard']}, measures:[{label:'1 medium apple', g:182},{label:'1 small apple', g:149},{label:'\u00bd apple', g:90}] },
+  { id:'orange',     match:{any:['orange'], not:['juice','peel','sweet potato']},         measures:[{label:'1 medium orange', g:130},{label:'1 small orange', g:95}] },
+  { id:'mandarin',   match:{any:['mandarin','tangerine','clementine']},                   measures:[{label:'1 mandarin', g:75}] },
+  { id:'mango',      match:{any:['mango'], not:['juice','dried','chutney','pickle']},     measures:[{label:'1 whole mango (flesh)', g:200},{label:'\u00bd mango', g:100},{label:'1 cup pieces', g:165}] },
+  { id:'papaya',     match:{any:['papaya','pawpaw']},                                     measures:[{label:'1 cup pieces', g:145},{label:'1 wedge', g:100}] },
+  { id:'watermelon', match:{any:['watermelon']},                                          measures:[{label:'1 cup pieces', g:150},{label:'1 wedge', g:280}] },
+  { id:'pineapple',  match:{any:['pineapple'], not:['juice','canned']},                   measures:[{label:'1 cup pieces', g:165},{label:'1 slice', g:85}] },
+  { id:'grapes',     match:{any:['grape'], not:['juice','fruit','dried','seed']},         measures:[{label:'10 grapes', g:50},{label:'1 cup', g:150},{label:'small bunch', g:100}] },
+  { id:'pear',       match:{any:['pear'], not:['prickly','canned']},                      measures:[{label:'1 medium pear', g:180}] },
+  { id:'kiwi',       match:{any:['kiwi']},                                                measures:[{label:'1 kiwifruit', g:75}] },
+  { id:'guava',      match:{any:['guava']},                                               measures:[{label:'1 guava', g:90}] },
+  { id:'dates',      match:{any:['date,','dates']},                                       measures:[{label:'1 date', g:8},{label:'3 dates', g:24}] },
+  { id:'raisins',    match:{any:['raisin','sultana']},                                    measures:[{label:'1 tbsp', g:12},{label:'small box', g:40}] },
+  { id:'berries',    match:{any:['strawberr','blueberr','raspberr','mixed berr']},        measures:[{label:'\u00bd cup', g:75},{label:'1 cup', g:150},{label:'5 strawberries', g:60}] },
+  { id:'melon',      match:{any:['rockmelon','cantaloupe','honeydew']},                   measures:[{label:'1 cup pieces', g:160},{label:'1 wedge', g:100}] },
+  { id:'coconut',    match:{any:['coconut'], all:['flesh|fresh|grated|desiccated|shredded'], not:['milk','cream','water','oil']}, measures:[{label:'1 tbsp grated', g:6},{label:'\u00bc cup grated', g:20}] },
+  { id:'fruit-canned', match:{any:['fruit'], all:['canned|in syrup|in juice']},           measures:[{label:'\u00bd cup drained', g:120},{label:'1 cup drained', g:240}] },
+
+  // \u2500\u2500 Fats, oils, spreads \u2500\u2500
+  { id:'oil',        match:{any:['oil'], not:['fish oil capsule','boiled','in oil','soil']}, measures:[{label:'1 tsp', g:5},{label:'1 tbsp', g:14},{label:'1 tbsp (drizzle)', g:10}] },
+  { id:'ghee',       match:{any:['ghee']},                                                measures:[{label:'1 tsp', g:5},{label:'1 tbsp', g:13}] },
+  { id:'mayo',       match:{any:['mayonnaise','mayo']},                                   measures:[{label:'1 tsp', g:6},{label:'1 tbsp', g:15}] },
+  { id:'peanut-butter', match:{any:['peanut butter','nut butter','nutella','hazelnut spread']}, measures:[{label:'1 tsp', g:8},{label:'1 tbsp (spread)', g:20}] },
+
+  // \u2500\u2500 Sugars, condiments, sauces \u2500\u2500
+  { id:'sugar',      match:{any:['sugar'], not:['free','icing','brown sugar sauce']},     measures:[{label:'1 tsp', g:4},{label:'1 tbsp', g:12},{label:'1 sachet', g:3}] },
+  { id:'honey',      match:{any:['honey'], not:['dew','comb','soy']},                     measures:[{label:'1 tsp', g:7},{label:'1 tbsp', g:21}] },
+  { id:'jam',        match:{any:['jam,','jam ','marmalade']},                             measures:[{label:'1 tsp', g:7},{label:'1 tbsp (spread)', g:15}] },
+  { id:'tomato-sauce', match:{any:['tomato sauce','ketchup']},                            measures:[{label:'1 tbsp', g:18},{label:'1 sachet', g:10}] },
+  { id:'soy-sauce',  match:{any:['soy sauce','fish sauce','oyster sauce']},               measures:[{label:'1 tsp', g:6},{label:'1 tbsp', g:18}] },
+  { id:'chutney',    match:{any:['chutney','pickle','relish','achar']},                   measures:[{label:'1 tsp', g:7},{label:'1 tbsp', g:20}] },
+  { id:'salad-dressing', match:{any:['dressing','vinaigrette']},                          measures:[{label:'1 tbsp', g:16}] },
+  { id:'gravy',      match:{any:['gravy']},                                               measures:[{label:'2 tbsp', g:35},{label:'\u00bc cup', g:65}] },
+  { id:'hummus',     match:{any:['hummus','hommus']},                                     measures:[{label:'1 tbsp', g:20},{label:'\u00bc cup', g:62}] },
+
+  // \u2500\u2500 Drinks \u2500\u2500
+  { id:'juice',      match:{any:['juice']},                                               measures:[{label:'1 small glass', g:150},{label:'1 glass', g:250},{label:'1 popper/box', g:200}] },
+  { id:'softdrink',  match:{any:['soft drink','cola','lemonade','soda','fizzy']},         measures:[{label:'1 glass', g:250},{label:'1 can', g:375},{label:'1 small bottle', g:600}] },
+  { id:'tea-coffee', match:{any:['tea,','tea ','coffee'], not:['cake','biscuit','spoon']},measures:[{label:'1 cup', g:250},{label:'1 mug', g:300}] },
+  { id:'milo',       match:{any:['milo','drinking chocolate','cocoa powder','horlicks','ovaltine']}, measures:[{label:'1 tsp powder', g:5},{label:'1 heaped tbsp powder', g:15},{label:'1 prepared cup', g:260}] },
+  { id:'coconut-water', match:{any:['coconut water','kurumba']},                          measures:[{label:'1 glass', g:250},{label:'1 young coconut', g:300}] },
+  { id:'smoothie',   match:{any:['smoothie','milkshake','lassi']},                        measures:[{label:'1 glass', g:250},{label:'1 large', g:400}] },
+  { id:'soup',       match:{any:['soup'], not:['powder','cube','mix, dry']},              measures:[{label:'1 cup', g:250},{label:'1 bowl', g:300},{label:'1 ladle', g:120}] },
+
+  // \u2500\u2500 Snacks & sweets \u2500\u2500
+  { id:'biscuit-sweet', match:{any:['biscuit','cookie'], not:['wheat','dog','savoury','cracker']}, measures:[{label:'1 plain biscuit', g:8},{label:'1 cream biscuit', g:14},{label:'2 biscuits', g:20}] },
+  { id:'cracker',    match:{any:['cracker','crispbread','savoury biscuit','rice cake']},  measures:[{label:'1 cracker', g:5},{label:'4 crackers', g:20},{label:'1 rice cake', g:10}] },
+  { id:'cake',       match:{any:['cake'], not:['rice cake','fish cake','pan']},           measures:[{label:'1 slice', g:80},{label:'1 small piece', g:50}] },
+  { id:'muffin',     match:{any:['muffin'], not:['english']},                             measures:[{label:'1 muffin', g:110},{label:'1 mini muffin', g:35}] },
+  { id:'chocolate',  match:{any:['chocolate'], not:['drink','milk,','cake','biscuit','powder','hot ']}, measures:[{label:'1 square/piece', g:6},{label:'1 row (4 squares)', g:25},{label:'1 small bar', g:50}] },
+  { id:'chips-pack', match:{any:['crisps','chips, corn','potato crisps','extruded snack']}, measures:[{label:'small pack', g:28},{label:'share pack', g:45}] },
+  { id:'popcorn',    match:{any:['popcorn']},                                             measures:[{label:'1 cup popped', g:10},{label:'small bag', g:25}] },
+  { id:'lolly',      match:{any:['lolly','lollies','candy','jelly bean','gummy']},        measures:[{label:'1 piece', g:5},{label:'small handful', g:25}] },
+  { id:'muesli-bar', match:{any:['muesli bar','cereal bar','granola bar','protein bar']}, measures:[{label:'1 bar', g:32}] },
+];
+
+// Exact-code overrides for known problem foods: { 'db:CODE': [{label, g}] }
+const FOOD_MEASURE_CODES = {};
+
+function measuresRuleMatches(rule, nm, cat) {
+  const m = rule.match || {};
+  if (m.cat && !(cat || '').toLowerCase().includes(m.cat)) return false;
+  if (m.any && !m.any.some(k => nm.includes(k))) return false;
+  if (m.all && !m.all.every(k => k.split('|').some(alt => nm.includes(alt)))) return false;
+  if (m.not && m.not.some(k => nm.includes(k))) return false;
+  return true;
+}
+
+function measuresForName(food) {
+  const nm = (food.name || '').toLowerCase();
+  const cat = food.cat || '';
+  for (const rule of FOOD_MEASURES) {
+    if (measuresRuleMatches(rule, nm, cat)) return rule.measures;
+  }
+  return [];
+}
 
 let userMeasures = {};
 try {
@@ -3451,15 +3651,10 @@ function getFoodMeasures(food) {
   if (key && userMeasures[key]) {
     userMeasures[key].forEach(m => { if (!out.some(o => o.label === m.label)) out.push(m); });
   }
-  // 3. Built-in measures matched by food name
-  const nm = (food.name || '').toLowerCase();
-  for (const kw in STARTER_MEASURES) {
-    if (nm.includes(kw)) {
-      STARTER_MEASURES[kw].forEach(m => {
-        if (!out.some(o => o.label === m.label)) out.push(m);
-      });
-    }
-  }
+  // 3. Exact-code overrides, then 4. measures library (first matching rule)
+  const codeKey = (food.db || '') + ':' + (food.code || '');
+  const libMeasures = FOOD_MEASURE_CODES[codeKey] || measuresForName(food);
+  libMeasures.forEach(m => { if (!out.some(o => o.label === m.label)) out.push(m); });
   return out;
 }
 
