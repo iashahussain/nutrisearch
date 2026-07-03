@@ -21,8 +21,9 @@
     --accent: #2d6a4f;
     --accent2: #40916c;
     --accent-light: #d8f3dc;
-    --warn: #e76f51;
-    --warn-light: #fde8e0;
+    --warn: #d08048;          /* warm amber-terracotta for over-target — calm, not alarming */
+    --warn-light: #fbeee0;
+    --red: #b3564d;           /* muted brick for destructive actions only */
     --caution: #e9c46a;
     --caution-light: #fdf3d0;
     --info: #3a86ff;
@@ -33,11 +34,24 @@
     --tag-usda: #145a32;
     --tag-custom: #6c3483;
     --tag-ausnut: #1a6e4a;
-    --shadow: 0 1px 3px rgba(0,0,0,0.06), 0 4px 16px rgba(0,0,0,0.04);
-    --shadow-lg: 0 4px 24px rgba(0,0,0,0.10);
-    --radius: 10px;
-    --radius-sm: 6px;
+    --shadow: 0 1px 3px rgba(45,106,79,0.05), 0 4px 16px rgba(45,106,79,0.05);
+    --shadow-lg: 0 4px 24px rgba(45,106,79,0.10);
+    --radius: 13px;
+    --radius-sm: 8px;
   }
+
+  /* Calm, gentle motion everywhere interactive */
+  button, .panel-tab, .preset-btn, .db-filter-btn, input, select, .log-item, .result-item {
+    transition: background-color 160ms ease, color 160ms ease, border-color 160ms ease,
+                box-shadow 160ms ease, transform 120ms ease, opacity 160ms ease;
+  }
+  button:active { transform: scale(0.97); }
+  button:focus-visible, input:focus-visible, select:focus-visible {
+    outline: 2px solid var(--accent2); outline-offset: 1px;
+  }
+  .tab-content.active { animation: tabFade 200ms ease; }
+  @keyframes tabFade { from { opacity: 0.4; transform: translateY(3px); } to { opacity: 1; transform: none; } }
+
 
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
@@ -845,6 +859,23 @@
     #printSheet .ps-footer { margin-top: 18px; font-size: 10px; color: #666; border-top: 1px solid #ccc; padding-top: 6px; }
   }
 
+  /* ── RESPONSIVE / TOUCH (kept last so it wins the cascade) ── */
+  @media (max-width: 720px), (pointer: coarse) {
+    button, .preset-btn, .panel-tab, .add-btn, .btn-primary, .btn-secondary { min-height: 42px; }
+    input, select { min-height: 42px; font-size: 14px; }
+    .log-del { min-width: 40px; min-height: 40px; }
+  }
+  @media (max-width: 720px) {
+    header { padding: 6px 12px; flex-wrap: wrap; height: auto; min-height: 48px; gap: 4px; }
+    .db-badges .db-badge { display: none; }
+    .app { height: auto; overflow: visible; }
+    .app-body { display: flex; flex-direction: column; overflow: visible; }
+    .left-panel { min-width: 0; border-right: none; overflow: visible; }
+    .tab-content, .tab-content.active { overflow: visible; }
+    .analysis-sidebar { border-left: none; border-top: 3px solid var(--accent); width: 100% !important; overflow: visible; }
+    .sidebar-drag { display: none; }
+  }
+
   /* ── ANIMATIONS ── */
   @keyframes fadeIn { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
   .fade-in { animation: fadeIn 0.2s ease; }
@@ -878,8 +909,8 @@
     <span class="db-badge usda">USDA</span>
     <span class="db-badge ausnut">AUSNUT</span>
     <span class="db-badge custom">CUSTOM</span>
-    <button class="btn-secondary" style="font-size:10px;padding:3px 9px;margin-left:10px;" onclick="backupExport()" title="Download a full backup of your custom foods, recipes, measures and plans">⬇ Backup</button>
-    <button class="btn-secondary" style="font-size:10px;padding:3px 9px;" onclick="document.getElementById('backupFileInput').click()" title="Restore or merge a backup file">⬆ Restore</button>
+    <button style="font-size:10px;padding:4px 10px;margin-left:10px;background:transparent;border:1px solid rgba(255,255,255,0.35);color:rgba(255,255,255,0.9);border-radius:var(--radius-sm);cursor:pointer;" onclick="backupExport()" title="Download a full backup of your custom foods, recipes, measures and plans">⬇ Backup</button>
+    <button style="font-size:10px;padding:4px 10px;background:transparent;border:1px solid rgba(255,255,255,0.35);color:rgba(255,255,255,0.9);border-radius:var(--radius-sm);cursor:pointer;" onclick="document.getElementById('backupFileInput').click()" title="Restore or merge a backup file">⬆ Restore</button>
     <input type="file" id="backupFileInput" accept=".json,application/json" style="display:none" onchange="backupImport(this)">
   </div>
 </header>
@@ -4225,7 +4256,7 @@ function updateDailyTotal() {
 
   const totalKcal = allItems.reduce((s,i) => s + (i.food.kcal * i.grams / 100), 0);
   const tgtKcal = parseFloat(document.getElementById('tgt_kcal')?.value) || null;
-  let html = dtVal(Math.round(totalKcal), 'kcal', tgtKcal, false, '#ffffff');
+  let html = dtVal(Math.round(totalKcal), 'kcal', tgtKcal ? totalKcal / tgtKcal * 100 : null, false, '#ffffff');
 
   const tgtMap = {
     prot: parseFloat(document.getElementById('tgt_prot')?.value)  || null,
