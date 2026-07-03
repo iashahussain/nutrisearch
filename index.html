@@ -3431,8 +3431,23 @@ function foodKey(food) { return food ? (food.code || food.name) : null; }
 function getFoodMeasures(food) {
   if (!food) return [];
   const out = [];
+  // 1. Packaged-food serving metadata first — "1 serve" becomes the default portion
+  const serv = parseFloat(food.serv);
+  if (serv > 0) {
+    out.push({ label: food.servLabel ? `1 serve — ${food.servLabel}` : '1 serve', g: serv });
+    const spp = parseFloat(food.servingsPerPack);
+    if (spp > 1) {
+      const packG = Math.round(serv * spp * 10) / 10;
+      out.push({ label: '½ pack', g: Math.round(packG/2 * 10) / 10 });
+      out.push({ label: '1 pack' + (food.packSize ? ` (${food.packSize})` : ''), g: packG });
+    }
+  }
+  // 2. User-defined measures
   const key = foodKey(food);
-  if (key && userMeasures[key]) out.push(...userMeasures[key]);
+  if (key && userMeasures[key]) {
+    userMeasures[key].forEach(m => { if (!out.some(o => o.label === m.label)) out.push(m); });
+  }
+  // 3. Built-in measures matched by food name
   const nm = (food.name || '').toLowerCase();
   for (const kw in STARTER_MEASURES) {
     if (nm.includes(kw)) {
