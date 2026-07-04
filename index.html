@@ -5,39 +5,43 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>Kaana — Clinical Nutrition Suite</title>
 <link rel="manifest" href="manifest.json">
-<meta name="theme-color" content="#2d6a4f">
+<meta name="theme-color" content="#1d4d36">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
 <link rel="apple-touch-icon" href="icon-192.png">
-<link href="https://fonts.googleapis.com/css2?family=DM+Serif+Display:ital@0;1&family=DM+Mono:wght@400;500&family=Outfit:wght@300;400;500;600&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,600;9..144,700&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
   :root {
-    --bg: #f7f4ef;
+    /* Clean, airy neutral palette — single deep-green accent */
+    --bg: #f7f7f5;
     --surface: #ffffff;
-    --surface2: #f0ece4;
-    --border: #e2ddd4;
-    --text: #1a1714;
-    --text2: #6b6560;
-    --text3: #9e9890;
-    --accent: #2d6a4f;
-    --accent2: #40916c;
-    --accent-light: #d8f3dc;
-    --warn: #d08048;          /* warm amber-terracotta for over-target — calm, not alarming */
-    --warn-light: #fbeee0;
+    --surface2: #f1f1ee;
+    --border: #e7e7e3;
+    --text: #17201b;
+    --text2: #5f6a63;
+    --text3: #98a19b;
+    --accent: #1d4d36;
+    --accent2: #2f7250;
+    --accent-light: #e4efe8;
+    --warn: #c98a4b;
+    --warn-light: #f9f0e4;
     --red: #b3564d;           /* muted brick for destructive actions only */
-    --caution: #e9c46a;
-    --caution-light: #fdf3d0;
-    --info: #3a86ff;
-    --info-light: #deeaff;
-    --tag-ifct: #6b4226;
-    --tag-afcd: #1b4f72;
-    --tag-nz: #1a5276;
-    --tag-usda: #145a32;
-    --tag-custom: #6c3483;
-    --tag-ausnut: #1a6e4a;
-    --shadow: 0 1px 3px rgba(45,106,79,0.05), 0 4px 16px rgba(45,106,79,0.05);
-    --shadow-lg: 0 4px 24px rgba(45,106,79,0.10);
-    --radius: 13px;
-    --radius-sm: 8px;
+    --caution: #d9b64e;
+    --caution-light: #f9f3df;
+    --info: #4a7fb5;
+    --info-light: #e8f0f8;
+    --tag-ifct: #7a6a55;
+    --tag-afcd: #55707a;
+    --tag-nz: #55707a;
+    --tag-usda: #5c7a5c;
+    --tag-custom: #7a5c74;
+    --tag-ausnut: #4f7a63;
+    --shadow: 0 1px 2px rgba(23,32,27,0.04), 0 4px 14px rgba(23,32,27,0.04);
+    --shadow-lg: 0 6px 28px rgba(23,32,27,0.10);
+    --radius: 14px;
+    --radius-sm: 9px;
+    --font-display: 'Fraunces', Georgia, serif;
+    --font-body: 'Inter', -apple-system, sans-serif;
+    --font-num: 'Inter', -apple-system, sans-serif;
   }
 
   /* Calm, gentle motion everywhere interactive */
@@ -56,55 +60,49 @@
   *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
   body {
-    font-family: 'Outfit', sans-serif;
+    font-family: var(--font-body);
     background: var(--bg);
     color: var(--text);
     min-height: 100vh;
     font-size: 14px;
     line-height: 1.5;
+    font-variant-numeric: tabular-nums;
+    -webkit-font-smoothing: antialiased;
   }
 
-  /* ── HEADER ── */
+  /* ── HEADER — clean and quiet ── */
   header {
-    background: var(--text);
-    color: white;
-    padding: 0 28px;
+    background: var(--surface);
+    color: var(--text);
+    border-bottom: 1px solid var(--border);
+    padding: 0 24px;
     display: flex;
     align-items: center;
     justify-content: space-between;
-    height: 56px;
+    height: 54px;
     position: sticky;
     top: 0;
     z-index: 100;
   }
   .logo {
-    font-family: 'DM Serif Display', serif;
-    font-size: 20px;
+    font-family: var(--font-display);
+    font-weight: 600;
+    font-size: 21px;
     letter-spacing: -0.3px;
     display: flex;
     align-items: center;
-    gap: 10px;
+    gap: 9px;
+    color: var(--text);
   }
-  .logo-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent2); display: inline-block; }
-  .header-sub { font-family: 'DM Mono', monospace; font-size: 10px; color: rgba(255,255,255,0.4); letter-spacing: 1px; }
-  .db-badges { display: flex; gap: 6px; }
-  .db-badge {
-    font-family: 'DM Mono', monospace;
-    font-size: 9px;
-    padding: 3px 7px;
-    border-radius: 20px;
-    letter-spacing: 0.5px;
-    font-weight: 500;
-    cursor: pointer;
-    border: 1.5px solid transparent;
-    transition: all 0.2s;
+  .logo-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--accent); display: inline-block; }
+  .header-sub { font-family: var(--font-body); font-size: 10px; font-weight: 500; color: var(--text3); letter-spacing: 1.6px; }
+  .db-badges { display: flex; gap: 6px; align-items: center; }
+  .db-badge { display: none; }   /* database badges moved out of the header — filters live in Food Search */
+  .hdr-btn {
+    font-size: 11px; font-weight: 500; padding: 6px 12px; background: none;
+    border: 1px solid var(--border); color: var(--text2); border-radius: var(--radius-sm); cursor: pointer;
   }
-  .db-badge.ifct { background: rgba(107,66,38,0.25); color: #e8c4a0; border-color: rgba(107,66,38,0.4); }
-  .db-badge.afcd { background: rgba(27,79,114,0.25); color: #a8c8e8; border-color: rgba(27,79,114,0.4); }
-  .db-badge.nz   { background: rgba(26,82,118,0.25); color: #a8d5e8; border-color: rgba(26,82,118,0.4); }
-  .db-badge.usda { background: rgba(20,90,50,0.25);  color: #a8d8b8; border-color: rgba(20,90,50,0.4); }
-  .db-badge.custom { background: rgba(108,52,131,0.25); color: #d4a8e8; border-color: rgba(108,52,131,0.4); }
-  .db-badge.ausnut { background: rgba(26,110,74,0.25); color: #90d4b0; border-color: rgba(26,110,74,0.4); }
+  .hdr-btn:hover { border-color: var(--accent2); color: var(--accent); }
 
   /* ── LAYOUT ── */
   .app {
@@ -126,7 +124,7 @@
   /* ── SIDE NAV ── */
   .side-nav {
     width: 172px;
-    background: var(--surface2);
+    background: var(--surface);
     border-right: 1px solid var(--border);
     display: flex;
     flex-direction: column;
@@ -143,7 +141,7 @@
     border: none;
     background: none;
     border-radius: 11px;
-    font-family: 'Outfit', sans-serif;
+    font-family: var(--font-body);
     font-size: 12.5px;
     font-weight: 500;
     color: var(--text2);
@@ -207,7 +205,7 @@
     border: 1.5px solid var(--border);
     border-radius: var(--radius);
     font-size: 14px;
-    font-family: 'Outfit', sans-serif;
+    font-family: var(--font-body);
     background: var(--bg);
     color: var(--text);
     transition: border-color 0.2s;
@@ -231,7 +229,7 @@
     border: 1.5px solid var(--border);
     background: none;
     cursor: pointer;
-    font-family: 'DM Mono', monospace;
+    font-family: var(--font-num);
     color: var(--text2);
     transition: all 0.15s;
   }
@@ -257,9 +255,9 @@
   .result-info { flex: 1; min-width: 0; }
   .result-name { font-weight: 500; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .result-cat { font-size: 11px; color: var(--text2); }
-  .result-macros { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text3); white-space: nowrap; }
+  .result-macros { font-family: var(--font-num); font-size: 10px; color: var(--text3); white-space: nowrap; }
   .db-tag {
-    font-family: 'DM Mono', monospace;
+    font-family: var(--font-num);
     font-size: 9px;
     padding: 2px 6px;
     border-radius: 10px;
@@ -298,7 +296,7 @@
     border: 1.5px solid var(--border);
     border-radius: var(--radius-sm);
     font-size: 14px;
-    font-family: 'DM Mono', monospace;
+    font-family: var(--font-num);
     text-align: right;
     outline: none;
     background: white;
@@ -311,7 +309,7 @@
     border: 1.5px solid var(--border);
     border-radius: var(--radius-sm);
     font-size: 12px;
-    font-family: 'Outfit', sans-serif;
+    font-family: var(--font-body);
     background: white;
     outline: none;
     cursor: pointer;
@@ -326,7 +324,7 @@
     border-radius: 20px;
     background: white;
     cursor: pointer;
-    font-family: 'Outfit', sans-serif;
+    font-family: var(--font-body);
     transition: all 0.15s;
   }
   .preset-btn:hover { background: var(--accent); color: white; border-color: var(--accent); }
@@ -339,7 +337,7 @@
     font-size: 13px;
     font-weight: 600;
     cursor: pointer;
-    font-family: 'Outfit', sans-serif;
+    font-family: var(--font-body);
     transition: background 0.2s;
     margin-left: auto;
   }
@@ -361,7 +359,7 @@
     text-transform: uppercase;
     letter-spacing: 0.8px;
   }
-  .meal-kcal { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--text3); }
+  .meal-kcal { font-family: var(--font-num); font-size: 11px; color: var(--text3); }
 
   /* ── MEAL LOG TABLE LAYOUT ── */
   .log-table { width: 100%; }
@@ -417,8 +415,8 @@
     box-shadow: 0 4px 14px rgba(0,0,0,0.28);
     pointer-events: none;
   }
-  .log-item-portion { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text3); text-align: right; white-space: nowrap; }
-  .log-item-kcal { font-family: 'DM Mono', monospace; font-size: 11px; color: var(--accent); font-weight: 600; text-align: right; }
+  .log-item-portion { font-family: var(--font-num); font-size: 10px; color: var(--text3); text-align: right; white-space: nowrap; }
+  .log-item-kcal { font-family: var(--font-num); font-size: 11px; color: var(--accent); font-weight: 600; text-align: right; }
   .log-del {
     background: none; border: none; color: var(--text3);
     cursor: pointer; padding: 2px 4px; font-size: 14px;
@@ -428,7 +426,7 @@
   .log-del:hover { background: var(--warn-light); color: var(--warn); }
 
   .log-nutrient {
-    font-family: 'DM Mono', monospace;
+    font-family: var(--font-num);
     font-size: 11px;
     text-align: right;
     white-space: nowrap;
@@ -448,7 +446,7 @@
     text-transform: uppercase; letter-spacing: 0.5px;
   }
   .meal-subtotal-val {
-    font-family: 'DM Mono', monospace; font-size: 11px;
+    font-family: var(--font-num); font-size: 11px;
     font-weight: 600; text-align: right; white-space: nowrap;
   }
   .log-del {
@@ -475,7 +473,7 @@
     border: 1.5px solid var(--border);
     border-radius: var(--radius-sm);
     font-size: 12px;
-    font-family: 'Outfit', sans-serif;
+    font-family: var(--font-body);
     outline: none;
     background: white;
   }
@@ -487,7 +485,7 @@
     font-size: 12px;
     cursor: pointer;
     color: var(--text2);
-    font-family: 'Outfit', sans-serif;
+    font-family: var(--font-body);
     transition: all 0.15s;
   }
   .clear-log-btn:hover { border-color: var(--warn); color: var(--warn); }
@@ -504,7 +502,7 @@
     border: 1.5px solid var(--border);
     border-radius: var(--radius-sm);
     font-size: 13px;
-    font-family: 'Outfit', sans-serif;
+    font-family: var(--font-body);
     background: white;
     outline: none;
     transition: border-color 0.2s;
@@ -522,7 +520,7 @@
     gap: 8px;
   }
   .recipe-item-name { flex: 1; font-size: 12px; font-weight: 500; }
-  .recipe-item-qty { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text3); }
+  .recipe-item-qty { font-family: var(--font-num); font-size: 10px; color: var(--text3); }
   .recipe-footer { flex-shrink: 0; border-top: 1px solid var(--border); padding: 12px 16px; }
   .recipe-action-row { display: flex; gap: 8px; }
 
@@ -538,7 +536,7 @@
   .recipe-result-name { flex: 1; font-size: 12px; font-weight: 500; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .recipe-portion-row { display: flex; gap: 6px; align-items: center; margin-top: 8px; }
   .recipe-portion-row .field-input { flex: 0 0 80px; }
-  .recipe-portion-row select { flex: 1; padding: 8px 10px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); font-size: 13px; font-family: 'Outfit', sans-serif; background: white; outline: none; }
+  .recipe-portion-row select { flex: 1; padding: 8px 10px; border: 1.5px solid var(--border); border-radius: var(--radius-sm); font-size: 13px; font-family: var(--font-body); background: white; outline: none; }
   .recipe-selected-label { font-size: 11px; color: var(--accent); font-weight: 600; margin-top: 8px; min-height: 14px; }
   .btn-secondary {
     background: none;
@@ -548,7 +546,7 @@
     font-size: 12px;
     font-weight: 500;
     cursor: pointer;
-    font-family: 'Outfit', sans-serif;
+    font-family: var(--font-body);
     color: var(--text);
     transition: all 0.15s;
   }
@@ -561,7 +559,7 @@
     font-size: 12px;
     font-weight: 600;
     cursor: pointer;
-    font-family: 'Outfit', sans-serif;
+    font-family: var(--font-body);
     color: white;
     transition: background 0.2s;
   }
@@ -593,7 +591,7 @@
     width: 100%; display: flex; align-items: center; justify-content: space-between;
     padding: 6px 12px; background: var(--surface2); border: none; cursor: pointer;
     font-size: 10px; font-weight: 600; color: var(--text2); text-transform: uppercase;
-    letter-spacing: 0.7px; font-family: 'Outfit', sans-serif;
+    letter-spacing: 0.7px; font-family: var(--font-body);
     transition: background 0.15s;
   }
   .analysis-section-toggle:hover { background: var(--border); }
@@ -617,7 +615,7 @@
     padding: 3px 3px;
     border: 1px solid var(--border);
     border-radius: var(--radius-sm);
-    font-family: 'DM Mono', monospace;
+    font-family: var(--font-num);
     font-size: 10px;
     text-align: center;
     outline: none;
@@ -647,9 +645,9 @@
     display: flex; flex-direction: column; gap: 2px;
   }
   .macro-strip-name { font-size: 8px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.5px; }
-  .macro-strip-val { font-family: 'DM Serif Display', serif; font-size: 17px; font-weight: 600; color: var(--text); line-height: 1.05; }
-  .macro-strip-unit { font-size: 8px; color: var(--text3); font-family: 'Outfit', sans-serif; }
-  .macro-strip-pct { font-size: 8.5px; color: var(--text3); font-family: 'DM Mono', monospace; }
+  .macro-strip-val { font-family: var(--font-display); font-size: 17px; font-weight: 600; color: var(--text); line-height: 1.05; }
+  .macro-strip-unit { font-size: 8px; color: var(--text3); font-family: var(--font-body); }
+  .macro-strip-pct { font-size: 8.5px; color: var(--text3); font-family: var(--font-num); }
   .macro-goal { font-size: 8.5px; color: var(--text3); }
   .macro-goal .delta-ok { color: var(--accent2); font-weight: 600; }
   .macro-goal .delta-off { color: var(--warn); font-weight: 600; }
@@ -661,7 +659,7 @@
   .ofwhich-cell:last-child { border-right: none; }
   .ofwhich-name { font-size: 8.5px; color: var(--text2); }
   .ofwhich-name small { color: var(--text3); }
-  .ofwhich-val { font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 600; color: var(--text); }
+  .ofwhich-val { font-family: var(--font-num); font-size: 11px; font-weight: 600; color: var(--text); }
   .ofwhich-val span { font-size: 7.5px; color: var(--text3); font-weight: 400; }
   .bar-ok  { background: var(--accent); }
   .bar-over{ background: var(--warn); }
@@ -700,15 +698,15 @@
   .micro-table td { padding: 4px 10px; border-bottom: 1px solid var(--border); font-size: 10.5px; background: var(--surface); }
   .micro-table tr:hover td { background: var(--surface2); }
   .micro-name { font-weight: 500; }
-  .micro-val { font-family: 'DM Mono', monospace; font-size: 11px; text-align: right; }
-  .micro-target-col { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text3); text-align: right; }
+  .micro-val { font-family: var(--font-num); font-size: 11px; text-align: right; }
+  .micro-target-col { font-family: var(--font-num); font-size: 10px; color: var(--text3); text-align: right; }
   .micro-pct { text-align: right; }
 
   .pct-pill {
     display: inline-block;
     padding: 2px 8px;
     border-radius: 10px;
-    font-family: 'DM Mono', monospace;
+    font-family: var(--font-num);
     font-size: 10px;
     font-weight: 500;
   }
@@ -731,7 +729,7 @@
   }
   .food-detail.visible { display: block; }
   .food-detail-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 6px; }
-  .food-detail-name { font-family: 'DM Serif Display', serif; font-size: 13px; line-height: 1.2; }
+  .food-detail-name { font-family: var(--font-display); font-size: 13px; line-height: 1.2; }
   .food-detail-meta { font-size: 9px; color: var(--text2); margin-top: 1px; }
   .close-detail { background: none; border: none; cursor: pointer; color: var(--text3); font-size: 14px; padding: 0 4px; line-height: 1; }
   .food-detail-macros {
@@ -749,7 +747,7 @@
     border-right: 1px solid var(--border);
   }
   .detail-macro:last-child { border-right: none; }
-  .detail-macro-val { font-family: 'DM Mono', monospace; font-size: 11px; font-weight: 600; color: var(--text); }
+  .detail-macro-val { font-family: var(--font-num); font-size: 11px; font-weight: 600; color: var(--text); }
   .detail-macro-name { font-size: 8px; color: var(--text3); margin-top: 1px; }
 
   /* ── CUSTOM FOOD FORM ── */
@@ -764,7 +762,7 @@
     border: 1.5px solid var(--border);
     border-radius: var(--radius-sm);
     font-size: 13px;
-    font-family: 'Outfit', sans-serif;
+    font-family: var(--font-body);
     background: white;
     outline: none;
     transition: border-color 0.2s;
@@ -784,7 +782,7 @@
     text-align: center;
   }
   .empty-state-icon { font-size: 48px; margin-bottom: 16px; opacity: 0.3; }
-  .empty-state h3 { font-family: 'DM Serif Display', serif; font-size: 20px; color: var(--text2); margin-bottom: 8px; }
+  .empty-state h3 { font-family: var(--font-display); font-size: 20px; color: var(--text2); margin-bottom: 8px; }
   .empty-state p { font-size: 13px; line-height: 1.6; max-width: 280px; }
 
   /* ── SCROLLBAR ── */
@@ -850,8 +848,10 @@
   /* ── DAILY TOTAL BAR ── */
   .daily-total-bar {
     flex-shrink: 0;
-    background: var(--text);
-    color: white;
+    background: var(--surface);
+    color: var(--text);
+    border-top: 2px solid var(--accent);
+    box-shadow: 0 -4px 16px rgba(23,32,27,0.06);
     padding: 10px 14px;
     display: flex;
     align-items: center;
@@ -861,21 +861,21 @@
   .daily-total-values { display: flex; gap: 10px; flex-wrap: wrap; flex: 1; }
   .dtval {
     display: flex; flex-direction: column; align-items: flex-end;
-    font-family: 'DM Mono', monospace;
+    font-family: var(--font-num);
   }
-  .dtval-num { font-size: 13px; font-weight: 500; color: white; }
-  .dtval-label { font-size: 9px; color: rgba(255,255,255,0.5); letter-spacing: 0.4px; text-transform: uppercase; }
+  .dtval-num { font-size: 13px; font-weight: 600; color: var(--text); }
+  .dtval-label { font-size: 9px; color: var(--text3); letter-spacing: 0.4px; text-transform: uppercase; }
   .dtval-pct {
-    font-size: 9px; font-family: 'DM Mono', monospace;
+    font-size: 9px; font-family: var(--font-num);
     padding: 1px 5px; border-radius: 8px; margin-top: 1px;
   }
-  .dpct-ok   { background: rgba(64,145,108,0.4); color: #90d8b4; }
-  .dpct-low  { background: rgba(233,196,106,0.3); color: #f0d070; }
-  .dpct-over { background: rgba(231,111,81,0.3);  color: #f0a090; }
+  .dpct-ok   { background: var(--accent-light);  color: var(--accent); }
+  .dpct-low  { background: var(--caution-light); color: #9a7d1e; }
+  .dpct-over { background: var(--warn-light);    color: var(--warn); }
   .dpct-none { display: none; }
 
   /* ── LOG ITEM NUTRIENTS ── */
-  .log-nutrient { font-family: 'DM Mono', monospace; font-size: 10px; color: var(--text3); white-space: nowrap; }
+  .log-nutrient { font-family: var(--font-num); font-size: 10px; color: var(--text3); white-space: nowrap; }
 
   /* ── USDA LOADING ── */
   .usda-loading { font-size: 11px; color: var(--text3); padding: 8px 16px; font-style: italic; }
@@ -911,7 +911,7 @@
   .pg-day-head.selected { border-color: var(--accent); background: var(--accent-light); }
   .pg-day-name { font-size: 11px; font-weight: 700; color: var(--text); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
   .pg-kcal-chip {
-    font-family: 'DM Mono', monospace; font-size: 9px; padding: 1px 6px; border-radius: 8px;
+    font-family: var(--font-num); font-size: 9px; padding: 1px 6px; border-radius: 8px;
     background: var(--surface); color: var(--text3); border: 1px solid var(--border); white-space: nowrap;
   }
   .pg-kcal-chip.ok   { background: var(--accent-light);  color: var(--accent);  border-color: transparent; }
@@ -939,7 +939,7 @@
   .pg-cell.highlighted { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-light); }
   .pg-item { font-size: 10px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.35; }
   .pg-item-more { font-size: 9px; color: var(--text3); font-style: italic; }
-  .pg-cell-kcal { font-family: 'DM Mono', monospace; font-size: 8.5px; color: var(--text3); margin-top: auto; padding-top: 2px; }
+  .pg-cell-kcal { font-family: var(--font-num); font-size: 8.5px; color: var(--text3); margin-top: auto; padding-top: 2px; }
   .pg-empty { font-size: 9.5px; color: var(--text3); font-style: italic; }
   .pg-addday {
     border: 1.5px dashed var(--border); border-radius: 9px; background: none; cursor: pointer;
@@ -971,7 +971,7 @@
   .lib-body { padding: 9px 11px 11px; display: flex; flex-direction: column; gap: 5px; flex: 1; }
   .lib-name { font-size: 12.5px; font-weight: 600; color: var(--text); line-height: 1.3;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-  .lib-stats { font-size: 10px; color: var(--text3); font-family: 'DM Mono', monospace; }
+  .lib-stats { font-size: 10px; color: var(--text3); font-family: var(--font-num); }
   .lib-tags { display: flex; gap: 3px; flex-wrap: wrap; align-items: center; }
   .lib-tag { font-size: 8.5px; padding: 2px 6px; border-radius: 8px; background: var(--surface2); color: var(--text2); }
   .lib-allergens { font-size: 8.5px; color: var(--warn); }
@@ -1060,14 +1060,8 @@
     <span class="header-sub">CLINICAL NUTRITION SUITE</span>
   </div>
   <div class="db-badges">
-    <span class="db-badge ifct">IFCT 2017</span>
-    <span class="db-badge afcd">AFCD</span>
-    <span class="db-badge nz">NZFCD</span>
-    <span class="db-badge usda">USDA</span>
-    <span class="db-badge ausnut">AUSNUT</span>
-    <span class="db-badge custom">CUSTOM</span>
-    <button style="font-size:10px;padding:4px 10px;margin-left:10px;background:transparent;border:1px solid rgba(255,255,255,0.35);color:rgba(255,255,255,0.9);border-radius:var(--radius-sm);cursor:pointer;" onclick="backupExport()" title="Download a full backup of your custom foods, recipes, measures and plans">⬇ Backup</button>
-    <button style="font-size:10px;padding:4px 10px;background:transparent;border:1px solid rgba(255,255,255,0.35);color:rgba(255,255,255,0.9);border-radius:var(--radius-sm);cursor:pointer;" onclick="document.getElementById('backupFileInput').click()" title="Restore or merge a backup file">⬆ Restore</button>
+    <button class="hdr-btn" onclick="backupExport()" title="Download a full backup of your custom foods, recipes, measures and plans">Backup</button>
+    <button class="hdr-btn" onclick="document.getElementById('backupFileInput').click()" title="Restore or merge a backup file">Restore</button>
     <input type="file" id="backupFileInput" accept=".json,application/json" style="display:none" onchange="backupImport(this)">
   </div>
 </header>
@@ -1135,8 +1129,8 @@
           </div>
         </div>
         <div style="display:flex;align-items:center;gap:10px;margin-top:5px;">
-          <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text3);" id="portionGramEquiv"></div>
-          <div style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text2);" id="portionKcalPreview"></div>
+          <div style="font-family:var(--font-num);font-size:10px;color:var(--text3);" id="portionGramEquiv"></div>
+          <div style="font-family:var(--font-num);font-size:10px;color:var(--text2);" id="portionKcalPreview"></div>
         </div>
         <div class="portion-presets">
           <span style="font-size:10px;color:var(--text3);align-self:center;">Quick:</span>
@@ -1167,7 +1161,8 @@
     <!-- TAB 2: MEAL LOG -->
     <div class="tab-content active" id="tab-log">
       <!-- PLAN BAR: patient plan header + day strip -->
-      <div style="padding:10px 12px;border-bottom:1px solid var(--border);background:var(--surface2);">
+      <div style="padding:14px 16px 10px;border-bottom:1px solid var(--border);background:var(--surface);">
+        <div style="font-family:var(--font-display);font-weight:600;font-size:22px;letter-spacing:-0.3px;margin-bottom:10px;">Meal Planner</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px;">
           <input class="field-input" id="planName" type="text" placeholder="Plan name — e.g. Bed 12 · 1800 kcal low Na" style="flex:2;min-width:160px;font-size:12px;" oninput="planFieldChange()">
           <input class="field-input" id="planPatient" type="text" placeholder="Patient" style="flex:1;min-width:80px;font-size:12px;" oninput="planFieldChange()">
@@ -1178,10 +1173,15 @@
             <option value="">Open saved plan…</option>
           </select>
           <button class="btn-secondary" style="font-size:11px;padding:5px 9px;" onclick="newPlan()">＋ New plan</button>
-          <button class="btn-secondary" style="font-size:11px;padding:5px 9px;" onclick="printPlanHandout()" title="Print a patient handout of this plan">🖨 Handout</button>
-          <button class="btn-secondary" style="font-size:11px;padding:5px 9px;" onclick="copyPlanText()" title="Copy the plan as text for the diet-plan document workflow">⎘ Text</button>
-          <button class="btn-secondary" style="font-size:11px;padding:5px 9px;" onclick="copyPlanJSON()" title="Copy the full plan + computed totals as JSON">{ } JSON</button>
-          <button class="btn-secondary" style="font-size:11px;padding:5px 9px;color:var(--red,#c0392b);" onclick="deletePlan()">Delete</button>
+          <button class="btn-secondary" style="font-size:11px;padding:5px 9px;" onclick="printPlanHandout()" title="Print a patient handout of this plan">Handout</button>
+          <details class="pg-menu" style="display:inline-block;">
+            <summary class="btn-secondary" style="font-size:11px;padding:5px 10px;display:inline-block;">⋯</summary>
+            <div class="pg-menu-items" style="top:32px;">
+              <button onclick="this.closest('details').open=false;copyPlanText()">Copy as text</button>
+              <button onclick="this.closest('details').open=false;copyPlanJSON()">Copy as JSON</button>
+              <button style="color:var(--red,#c0392b)" onclick="this.closest('details').open=false;deletePlan()">Delete plan</button>
+            </div>
+          </details>
         </div>
         <div id="periodChecks" style="display:flex;gap:5px;flex-wrap:wrap;margin-top:9px;align-items:center;"></div>
       </div>
@@ -1211,7 +1211,7 @@
               <optgroup label="Weight"><option value="g">g</option><option value="oz">oz</option></optgroup>
               <optgroup label="Volume"><option value="ml">ml</option><option value="fl_oz">fl oz</option><option value="cup">cup (240ml)</option><option value="half_cup">½ cup</option><option value="tbsp">tbsp (15ml)</option><option value="tsp">tsp (5ml)</option></optgroup>
             </select>
-            <span id="logPortionEquiv" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text3);"></span>
+            <span id="logPortionEquiv" style="font-family:var(--font-num);font-size:10px;color:var(--text3);"></span>
             <select class="meal-select" id="logMealSelect" style="min-width:100px;font-size:11px;">
               <option value="breakfast">Breakfast</option>
               <option value="morning_snack">Morning Tea</option>
@@ -1235,13 +1235,15 @@
           </div>
         </div>
       </div>
-      <!-- Nutrient toggles + clear -->
+      <!-- Nutrient columns (collapsed by default — less visual noise) -->
       <div class="meal-log-footer" style="border-bottom:1px solid var(--border);border-top:none;padding-bottom:8px;">
-        <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
-          <div style="font-size:10px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.6px;">Show nutrients:</div>
-          <button class="clear-log-btn" onclick="clearLog()">Clear All</button>
-        </div>
-        <div class="nutrient-toggles" id="nutrientToggles"></div>
+        <details>
+          <summary style="display:flex;align-items:center;justify-content:space-between;cursor:pointer;list-style:none;">
+            <span style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.6px;">⚙ Nutrient columns ▾</span>
+            <button class="clear-log-btn" onclick="event.preventDefault();clearLog()">Clear day</button>
+          </summary>
+          <div class="nutrient-toggles" id="nutrientToggles" style="margin-top:8px;"></div>
+        </details>
       </div>
       <div class="meal-log-area" id="mealLogArea">
         <div class="empty-log">No foods logged yet.<br>Search and add foods from the Food Search tab.</div>
@@ -1255,7 +1257,8 @@
 
     <!-- RECIPE LIBRARY -->
     <div class="tab-content" id="tab-library">
-      <div style="padding:14px 16px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--surface2);">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--surface);">
+        <div style="font-family:var(--font-display);font-weight:600;font-size:22px;letter-spacing:-0.3px;margin-bottom:10px;">Recipe Library</div>
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
           <input class="field-input" id="libSearch" type="text" placeholder="Search recipes…" style="flex:1;" oninput="renderLibrary()">
           <button class="btn-primary" style="white-space:nowrap;" onclick="clearRecipe();openRecipeBuilder()">＋ New recipe</button>
@@ -1294,7 +1297,7 @@
         </div>
         <div class="field-group" style="margin:2px 0 12px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">
           <div class="field-label" style="margin-bottom:6px;">📋 Paste a recipe (from a website, or just type it)</div>
-          <textarea id="recipePasteBox" class="field-input" style="width:100%;height:88px;font-size:11px;font-family:'DM Mono',monospace;box-sizing:border-box;" placeholder="One ingredient per line, any style, e.g.
+          <textarea id="recipePasteBox" class="field-input" style="width:100%;height:88px;font-size:11px;font-family:var(--font-num);box-sizing:border-box;" placeholder="One ingredient per line, any style, e.g.
 2 cups cooked rice
 1 tbsp olive oil
 1 can chickpeas (400g)
@@ -1310,7 +1313,7 @@
           </div>
           <details style="margin-top:8px;">
             <summary style="font-size:11px;color:var(--text3);cursor:pointer;">…or paste ingredients from Excel</summary>
-            <textarea id="menuPasteBox" class="field-input" style="width:100%;height:72px;font-size:11px;margin-top:6px;font-family:'DM Mono',monospace;box-sizing:border-box;" placeholder="One ingredient per line, e.g.
+            <textarea id="menuPasteBox" class="field-input" style="width:100%;height:72px;font-size:11px;margin-top:6px;font-family:var(--font-num);box-sizing:border-box;" placeholder="One ingredient per line, e.g.
 Chicken Breast	GM	500
 Olive Oil 25 ml"></textarea>
             <button class="btn-secondary" style="font-size:11px;padding:6px 10px;margin-top:4px;" onclick="parsePastedIngredients()">Parse &amp; add</button>
@@ -3404,7 +3407,7 @@ function cfRefSearch() {
     <div class="ref-item" style="display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:4px;cursor:pointer;" onclick="applyReference(${i})">
       <span style="flex:1;font-size:12px;">${r.f.name}</span>
       <span class="db-badge ${r.db}" style="font-size:9px;">${(r.db||'').toUpperCase()}</span>
-      <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text3);">${Math.round(r.f.kcal||0)}kcal</span>
+      <span style="font-family:var(--font-num);font-size:10px;color:var(--text3);">${Math.round(r.f.kcal||0)}kcal</span>
     </div>`).join('');
 }
 
@@ -4165,7 +4168,7 @@ function handleLogSearch() {
       <div class="log-result-item" onclick="selectLogFood(${i})">
         <span class="db-tag tag-${f.db}" style="font-size:8px;flex-shrink:0;">${f.db.toUpperCase()}</span>
         <span style="flex:1;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${f.name}</span>
-        <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text3);flex-shrink:0;">${Math.round(f.kcal)}kcal</span>
+        <span style="font-family:var(--font-num);font-size:10px;color:var(--text3);flex-shrink:0;">${Math.round(f.kcal)}kcal</span>
       </div>
     `).join('');
   }
@@ -4213,7 +4216,7 @@ function appendLogUSDA(foods) {
     <div class="log-result-item" onclick="selectLogFood(${offset+i})">
       <span class="db-tag tag-usda" style="font-size:8px;flex-shrink:0;">USDA</span>
       <span style="flex:1;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${f.name}</span>
-      <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text3);flex-shrink:0;">${Math.round(f.kcal)}kcal</span>
+      <span style="font-family:var(--font-num);font-size:10px;color:var(--text3);flex-shrink:0;">${Math.round(f.kcal)}kcal</span>
     </div>
   `).join('');
   resultsEl.innerHTML += html;
@@ -6512,7 +6515,7 @@ function updateCustomFoodList() {
     customFoods.map((f,i)=>`
       <div style="display:flex;align-items:center;gap:8px;padding:7px 10px;background:var(--bg);border:1px solid var(--border);border-radius:var(--radius-sm);margin-bottom:4px;${editingCustomIndex===i?'border-color:var(--accent);':''}">
         <span style="flex:1;font-size:12px;font-weight:500;">${f.name}</span>
-        <span style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text3);">${Math.round(f.kcal)}kcal</span>
+        <span style="font-family:var(--font-num);font-size:10px;color:var(--text3);">${Math.round(f.kcal)}kcal</span>
         ${(f.serv||f.servLabel)?`<span style="font-size:10px;color:var(--text3);" title="Serving size">· ${f.servLabel||(f.serv+' g')}</span>`:''}
         <button class="preset-btn" style="padding:2px 8px;font-size:11px;" onclick="editCustomFood(${i})">Edit</button>
         <button class="log-del" onclick="deleteCustomFood(${i})">×</button>
