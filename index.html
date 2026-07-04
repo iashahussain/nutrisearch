@@ -899,6 +899,66 @@
     #printSheet .ps-footer { margin-top: 18px; font-size: 10px; color: #666; border-top: 1px solid #ccc; padding-top: 6px; }
   }
 
+  /* ── PLAN GRID (meal periods × days) ── */
+  .plan-grid { display: grid; gap: 4px; min-width: fit-content; }
+  .pg-corner { }
+  .pg-day-head {
+    background: var(--surface2); border: 1px solid var(--border); border-radius: 9px;
+    padding: 6px 8px; display: flex; align-items: center; gap: 6px; cursor: pointer;
+    min-width: 118px;
+  }
+  .pg-day-head.selected { border-color: var(--accent); background: var(--accent-light); }
+  .pg-day-name { font-size: 11px; font-weight: 700; color: var(--text); flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .pg-kcal-chip {
+    font-family: 'DM Mono', monospace; font-size: 9px; padding: 1px 6px; border-radius: 8px;
+    background: var(--surface); color: var(--text3); border: 1px solid var(--border); white-space: nowrap;
+  }
+  .pg-kcal-chip.ok   { background: var(--accent-light);  color: var(--accent);  border-color: transparent; }
+  .pg-kcal-chip.off  { background: var(--caution-light); color: #a07408;        border-color: transparent; }
+  .pg-menu { position: relative; }
+  .pg-menu summary { list-style: none; cursor: pointer; color: var(--text3); font-size: 13px; padding: 0 3px; border-radius: 5px; }
+  .pg-menu summary::-webkit-details-marker { display: none; }
+  .pg-menu[open] summary { background: rgba(0,0,0,0.07); }
+  .pg-menu-items {
+    position: absolute; right: 0; top: 20px; z-index: 40; background: var(--surface);
+    border: 1px solid var(--border); border-radius: 9px; box-shadow: var(--shadow-lg);
+    display: flex; flex-direction: column; min-width: 130px; overflow: hidden;
+  }
+  .pg-menu-items button { border: none; background: none; text-align: left; padding: 8px 12px; font-size: 11.5px; color: var(--text); cursor: pointer; }
+  .pg-menu-items button:hover { background: var(--surface2); }
+  .pg-period-label { font-size: 9px; font-weight: 700; color: var(--text3); text-transform: uppercase; letter-spacing: 0.5px; display: flex; align-items: center; padding: 4px 2px; }
+  .pg-period-label .pg-warn { margin-left: 4px; }
+  .pg-cell {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 9px;
+    padding: 5px 7px; min-height: 40px; cursor: pointer; display: flex; flex-direction: column; gap: 2px;
+    min-width: 118px;
+  }
+  .pg-cell:hover { border-color: var(--accent2); box-shadow: var(--shadow); }
+  .pg-cell.selected-day { background: #fbfaf7; }
+  .pg-cell.highlighted { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-light); }
+  .pg-item { font-size: 10px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.35; }
+  .pg-item-more { font-size: 9px; color: var(--text3); font-style: italic; }
+  .pg-cell-kcal { font-family: 'DM Mono', monospace; font-size: 8.5px; color: var(--text3); margin-top: auto; padding-top: 2px; }
+  .pg-empty { font-size: 9.5px; color: var(--text3); font-style: italic; }
+  .pg-addday {
+    border: 1.5px dashed var(--border); border-radius: 9px; background: none; cursor: pointer;
+    color: var(--text3); font-size: 11px; padding: 6px 10px; white-space: nowrap; align-self: stretch;
+  }
+  .pg-addday:hover { border-color: var(--accent2); color: var(--accent); }
+  .pg-warn { width: 6px; height: 6px; border-radius: 50%; background: var(--caution); display: inline-block; }
+  .period-chip {
+    display: inline-flex; align-items: center; gap: 4px; font-size: 10.5px; padding: 4px 9px;
+    border: 1.5px solid var(--border); border-radius: 20px; cursor: pointer; color: var(--text2);
+    background: var(--surface); user-select: none;
+  }
+  .period-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .period-chip input { display: none; }
+  .highlighted-meal { box-shadow: inset 3px 0 0 var(--accent); background: rgba(45,106,79,0.035); }
+  #tab-log.editor-collapsed .search-area,
+  #tab-log.editor-collapsed .meal-log-footer,
+  #tab-log.editor-collapsed .meal-log-area,
+  #tab-log.editor-collapsed .daily-total-bar { display: none; }
+
   /* ── RESPONSIVE / TOUCH (kept last so it wins the cascade) ── */
   @media (max-width: 720px), (pointer: coarse) {
     button, .preset-btn, .panel-tab, .add-btn, .btn-primary, .btn-secondary { min-height: 42px; }
@@ -1084,7 +1144,16 @@
           <button class="btn-secondary" style="font-size:11px;padding:5px 9px;" onclick="copyPlanJSON()" title="Copy the full plan + computed totals as JSON">{ } JSON</button>
           <button class="btn-secondary" style="font-size:11px;padding:5px 9px;color:var(--red,#c0392b);" onclick="deletePlan()">Delete</button>
         </div>
-        <div id="dayStrip" style="display:flex;gap:4px;flex-wrap:wrap;margin-top:8px;"></div>
+        <div id="periodChecks" style="display:flex;gap:5px;flex-wrap:wrap;margin-top:9px;align-items:center;"></div>
+      </div>
+      <!-- SIDE-BY-SIDE PLAN GRID: meal periods × days -->
+      <div id="planGridWrap" style="padding:10px 12px;border-bottom:1px solid var(--border);background:var(--surface);overflow-x:auto;flex-shrink:0;max-height:44vh;overflow-y:auto;">
+        <div id="planGrid"></div>
+      </div>
+      <!-- DAY EDITOR (the classic one-day flow, focused from the grid) -->
+      <div id="dayEditorHeader" style="display:flex;align-items:center;justify-content:space-between;padding:8px 14px;background:var(--surface2);border-bottom:1px solid var(--border);cursor:pointer;" onclick="toggleDayEditor()">
+        <span style="font-size:11px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.6px;">✎ Day editor — <span id="dayEditorLabel">Day 1</span></span>
+        <span id="dayEditorChevron" style="font-size:11px;color:var(--text3);">▾</span>
       </div>
       <!-- Embedded mini search for adding foods directly from log tab -->
       <div class="search-area" style="background:var(--surface2);">
@@ -4213,7 +4282,9 @@ function toggleNutrient(i, el) {
 
 function renderMealLog() {
   const area = document.getElementById('mealLogArea');
-  const order = ['breakfast','morning_snack','lunch','afternoon_snack','dinner','evening_snack'];
+  const planPeriods = currentPlan ? visiblePeriods(currentPlan) : ALL_PERIODS;
+  // sections to render: selected periods (placeholders when empty) + anything populated
+  const order = ALL_PERIODS.filter(m => planPeriods.includes(m) || (mealLog[m] && mealLog[m].length));
   const filled = order.filter(m => mealLog[m] && mealLog[m].length > 0);
   const activeNutrients = LOG_NUTRIENTS.filter(n => n.on);
 
@@ -4224,9 +4295,10 @@ function renderMealLog() {
     fibre: parseFloat(document.getElementById('tgt_fibre')?.value) || null,
   };
 
-  if (filled.length === 0) {
-    area.innerHTML = '<div class="empty-log">No foods logged yet.<br>Search and add foods from the Food Search tab.</div>';
+  if (filled.length === 0 && order.length === 0) {
+    area.innerHTML = '<div class="empty-log">No foods logged yet.<br>Tick a meal period above, then search to add foods.</div>';
     updateDailyTotal();
+    if (typeof renderPlanGrid === 'function') renderPlanGrid();
     return;
   }
 
@@ -4256,9 +4328,18 @@ function renderMealLog() {
 
   const globalHeader = `<div class="log-col-header" style="${gridStyle}">${headerCells}</div>`;
 
-  // ── Meal sections
-  const sections = filled.map(meal => {
-    const items = mealLog[meal];
+  // ── Meal sections (placeholders for empty selected periods)
+  const sections = order.map(meal => {
+    const items = mealLog[meal] || [];
+    if (!items.length) {
+      return `
+      <div class="meal-section ${meal === highlightMeal ? 'highlighted-meal' : ''}" id="mealsec-${meal}">
+        <div class="meal-section-header" style="padding:8px 10px 6px;margin-bottom:0;cursor:pointer;" onclick="planGridCellClick(currentDayIdx, '${meal}')">
+          <span class="meal-section-title" style="opacity:0.6;">${MEAL_NAMES[meal]}</span>
+          <span style="font-size:10px;color:var(--text3);font-style:italic;">empty — select this meal above, search &amp; add</span>
+        </div>
+      </div>`;
+    }
     const mealKcal = items.reduce((s,i) => s + (i.food.kcal * i.grams / 100), 0);
 
     // Nutrient totals for this meal
@@ -4302,7 +4383,7 @@ function renderMealLog() {
       ? `<span style="font-size:9px;opacity:0.75"> ${Math.round(mealKcal/(parseFloat(document.getElementById('tgt_kcal')?.value)||1)*100)}%</span>` : '';
 
     return `
-      <div class="meal-section">
+      <div class="meal-section ${meal === highlightMeal ? 'highlighted-meal' : ''}" id="mealsec-${meal}">
         <div class="meal-section-header" style="padding:8px 10px 4px;margin-bottom:0;">
           <span class="meal-section-title">${MEAL_NAMES[meal]}</span>
           <span class="meal-kcal">${Math.round(mealKcal)} kcal</span>
@@ -4322,6 +4403,7 @@ function renderMealLog() {
 
   area.innerHTML = globalHeader + sections;
   updateDailyTotal();
+  if (typeof renderPlanGrid === 'function') renderPlanGrid();
 }
 
 function updateDailyTotal() {
@@ -4594,14 +4676,128 @@ function renderPlanLoadSelect(){
   if (!currentPlan || !arr.some(p=>p.id===currentPlan.id)) sel.value = cur === '' ? '' : sel.value;
 }
 
-function renderDayStrip(){
-  const el = document.getElementById('dayStrip'); if (!el || !currentPlan) return;
-  el.innerHTML = currentPlan.days.map((d, i) =>
-    `<button class="preset-btn" style="${i===currentDayIdx?'background:var(--accent);color:#fff;border-color:var(--accent);':''}" onclick="switchPlanDay(${i})" ondblclick="renamePlanDay()" title="Click to open · double-click to rename">${d.label}</button>`
-  ).join('') +
-  `<button class="preset-btn" style="border-style:dashed;" onclick="addPlanDay()" title="Add a day">＋ day</button>` +
-  `<button class="preset-btn" style="border-style:dashed;" onclick="duplicatePlanDay()" title="Duplicate this day">⧉</button>` +
-  (currentPlan.days.length > 1 ? `<button class="preset-btn" style="border-style:dashed;color:var(--red,#c0392b);" onclick="deletePlanDay()" title="Delete this day">✕</button>` : '');
+// ── Side-by-side plan grid: meal periods (rows) × days (columns) ──
+const ALL_PERIODS = ['breakfast','morning_snack','lunch','afternoon_snack','dinner','evening_snack'];
+let highlightMeal = null;      // meal focused from a grid cell click
+let dayEditorOpen = true;
+
+function ensurePlanDefaults(plan){
+  if (!plan) return plan;
+  if (!Array.isArray(plan.mealPeriods) || !plan.mealPeriods.length) {
+    plan.mealPeriods = ALL_PERIODS.slice();
+  }
+  if (!plan.prefs) plan.prefs = {};
+  return plan;
+}
+
+function renderDayStrip(){          // legacy name — call sites unchanged
+  renderPeriodChecks();
+  renderPlanGrid();
+}
+
+function renderPeriodChecks(){
+  const el = document.getElementById('periodChecks'); if (!el || !currentPlan) return;
+  ensurePlanDefaults(currentPlan);
+  el.innerHTML = '<span style="font-size:9px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-right:2px;">Meals:</span>' +
+    ALL_PERIODS.map(m => {
+      const on = currentPlan.mealPeriods.includes(m);
+      return `<label class="period-chip ${on?'on':''}"><input type="checkbox" ${on?'checked':''} onchange="togglePlanPeriod('${m}', this.checked)">${MEAL_NAMES[m]}</label>`;
+    }).join('');
+}
+
+function togglePlanPeriod(m, on){
+  ensurePlanDefaults(currentPlan);
+  if (on) {
+    if (!currentPlan.mealPeriods.includes(m)) currentPlan.mealPeriods.push(m);
+    currentPlan.mealPeriods.sort((a,b) => ALL_PERIODS.indexOf(a) - ALL_PERIODS.indexOf(b));
+  } else {
+    currentPlan.mealPeriods = currentPlan.mealPeriods.filter(x => x !== m);
+    const populated = currentPlan.days.some(d => (d.meals[m]||[]).length);
+    if (populated) showToast(MEAL_NAMES[m] + ' still has foods — kept visible with a warning dot');
+  }
+  renderPeriodChecks();
+  renderPlanGrid();
+  renderMealLog();
+  autosavePlan();
+}
+
+// Periods to display: selected ones, plus any unselected that still hold food (never hide data)
+function visiblePeriods(entity){
+  ensurePlanDefaults(entity);
+  return ALL_PERIODS.filter(m =>
+    entity.mealPeriods.includes(m) || entity.days.some(d => (d.meals[m]||[]).length));
+}
+
+function renderPlanGrid(){
+  const el = document.getElementById('planGrid'); if (!el || !currentPlan) return;
+  const periods = visiblePeriods(currentPlan);
+  const days = currentPlan.days;
+  const tgtKcal = parseFloat(document.getElementById('tgt_kcal')?.value) || null;
+
+  const cols = `86px repeat(${days.length}, minmax(118px, 1fr)) auto`;
+  let html = `<div class="plan-grid" style="grid-template-columns:${cols}">`;
+
+  // header row
+  html += `<div class="pg-corner"></div>`;
+  days.forEach((d, i) => {
+    const t = computeTotals(Object.values(d.meals).flat());
+    const kcal = Math.round(t.kcal);
+    let chipCls = '';
+    if (tgtKcal) { const pct = kcal / tgtKcal * 100; chipCls = (pct >= 90 && pct <= 110) ? 'ok' : 'off'; }
+    html += `<div class="pg-day-head ${i===currentDayIdx?'selected':''}" onclick="switchPlanDay(${i})">
+      <span class="pg-day-name">${d.label}</span>
+      <span class="pg-kcal-chip ${chipCls}">${kcal} kcal</span>
+      <details class="pg-menu" onclick="event.stopPropagation()">
+        <summary>⋮</summary>
+        <div class="pg-menu-items">
+          <button onclick="this.closest('details').open=false;switchPlanDay(${i});renamePlanDay()">✎ Rename</button>
+          <button onclick="this.closest('details').open=false;switchPlanDay(${i});duplicatePlanDay()">⧉ Duplicate</button>
+          ${days.length > 1 ? `<button style="color:var(--red,#c0392b)" onclick="this.closest('details').open=false;switchPlanDay(${i});deletePlanDay()">✕ Delete day</button>` : ''}
+        </div>
+      </details>
+    </div>`;
+  });
+  html += `<button class="pg-addday" onclick="addPlanDay()" title="Add a day">＋ day</button>`;
+
+  // one row per meal period
+  periods.forEach(meal => {
+    const unchecked = !currentPlan.mealPeriods.includes(meal);
+    html += `<div class="pg-period-label">${MEAL_NAMES[meal]}${unchecked ? '<span class="pg-warn" title="Meal not in plan’s selected periods but still has foods"></span>' : ''}</div>`;
+    days.forEach((d, i) => {
+      const items = d.meals[meal] || [];
+      const kcal = Math.round(computeTotals(items).kcal);
+      const shown = items.slice(0, 3).map(it =>
+        `<span class="pg-item" title="${(it.food.name||'').replace(/"/g,'&quot;')}">${it.food.name}</span>`).join('');
+      const more = items.length > 3 ? `<span class="pg-item-more">+${items.length - 3} more</span>` : '';
+      const hl = (i === currentDayIdx && meal === highlightMeal) ? 'highlighted' : '';
+      html += `<div class="pg-cell ${i===currentDayIdx?'selected-day':''} ${hl}" onclick="planGridCellClick(${i}, '${meal}')">
+        ${items.length ? shown + more + `<span class="pg-cell-kcal">${kcal} kcal</span>` : '<span class="pg-empty">＋ add</span>'}
+      </div>`;
+    });
+    html += `<div></div>`;   // filler under the add-day column
+  });
+
+  html += `</div>`;
+  el.innerHTML = html;
+  const lbl = document.getElementById('dayEditorLabel');
+  if (lbl) lbl.textContent = days[currentDayIdx].label + (highlightMeal ? ' · ' + MEAL_NAMES[highlightMeal] : '');
+}
+
+function planGridCellClick(dayIdx, meal){
+  highlightMeal = meal;
+  switchPlanDay(dayIdx);
+  const sel = document.getElementById('logMealSelect');
+  if (sel) sel.value = meal;
+  if (!dayEditorOpen) toggleDayEditor();
+  const target = document.getElementById('mealsec-' + meal) || document.getElementById('dayEditorHeader');
+  if (target) target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+}
+
+function toggleDayEditor(){
+  dayEditorOpen = !dayEditorOpen;
+  document.getElementById('tab-log').classList.toggle('editor-collapsed', !dayEditorOpen);
+  const ch = document.getElementById('dayEditorChevron');
+  if (ch) ch.textContent = dayEditorOpen ? '▾' : '▸';
 }
 
 function initPlans(){
