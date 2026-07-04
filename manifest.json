@@ -1,7 +1,7 @@
 {
-  "name": "NutriSearch — Clinical Nutrition Analysis",
-  "short_name": "NutriSearch",
-  "description": "Food, recipe and meal-plan nutrition analysis across IFCT, AFCD, AUSNUT, NZFCD, USDA and custom packaged foods.",
+  "name": "Kaana — Clinical Nutrition Suite",
+  "short_name": "Kaana",
+  "description": "Recipe bank, patient meal planning, food records and hospital menu cycles — nutrition analysis across IFCT, AFCD, AUSNUT, NZFCD, USDA and custom packaged foods.",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

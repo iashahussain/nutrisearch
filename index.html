@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>NutriSearch — Clinical Nutrition Analysis</title>
+<title>Kaana — Clinical Nutrition Suite</title>
 <link rel="manifest" href="manifest.json">
 <meta name="theme-color" content="#2d6a4f">
 <link rel="icon" type="image/png" sizes="192x192" href="icon-192.png">
@@ -114,14 +114,48 @@
     overflow: hidden;
   }
 
-  /* ── MAIN AREA: left tabs + analysis panel side by side ── */
+  /* ── MAIN AREA: side nav + main panel + analysis panel ── */
   .app-body {
     display: grid;
-    grid-template-columns: 1fr 290px;
+    grid-template-columns: auto 1fr 290px;
     flex: 1;
     min-height: 0;
     overflow: hidden;
   }
+
+  /* ── SIDE NAV ── */
+  .side-nav {
+    width: 172px;
+    background: var(--surface2);
+    border-right: 1px solid var(--border);
+    display: flex;
+    flex-direction: column;
+    gap: 3px;
+    padding: 14px 8px;
+    flex-shrink: 0;
+    overflow-y: auto;
+  }
+  .nav-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px 12px;
+    border: none;
+    background: none;
+    border-radius: 11px;
+    font-family: 'Outfit', sans-serif;
+    font-size: 12.5px;
+    font-weight: 500;
+    color: var(--text2);
+    cursor: pointer;
+    text-align: left;
+    width: 100%;
+  }
+  .nav-item.active { background: var(--accent); color: #fff; font-weight: 600; }
+  .nav-item:hover:not(.active):not(:disabled) { background: rgba(0,0,0,0.05); color: var(--text); }
+  .nav-item:disabled { opacity: 0.38; cursor: default; }
+  .nav-icon { font-size: 15px; line-height: 1; flex: none; }
+  .nav-label { white-space: nowrap; }
 
   /* ── LEFT PANEL ── */
   .left-panel {
@@ -598,22 +632,28 @@
   /* Macro strip replaces 2x2 grid */
   .macro-strip {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
+    grid-template-columns: repeat(2, 1fr);
     gap: 0;
     border-bottom: 1px solid var(--border);
   }
   .macro-strip-cell {
-    padding: 5px 6px;
-    border-right: 1px solid var(--border);
-    display: flex; flex-direction: column; gap: 1px;
+    padding: 8px 9px;
+    margin: 3px;
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    box-shadow: var(--shadow);
+    display: flex; flex-direction: column; gap: 2px;
   }
-  .macro-strip-cell:last-child { border-right: none; }
-  .macro-strip-name { font-size: 8px; font-weight: 600; color: var(--text2); text-transform: uppercase; letter-spacing: 0.3px; }
-  .macro-strip-val { font-family: 'DM Mono', monospace; font-size: 12px; font-weight: 600; color: var(--text); line-height: 1.1; }
-  .macro-strip-unit { font-size: 7.5px; color: var(--text3); }
+  .macro-strip-name { font-size: 8px; font-weight: 600; color: var(--text3); text-transform: uppercase; letter-spacing: 0.5px; }
+  .macro-strip-val { font-family: 'DM Serif Display', serif; font-size: 17px; font-weight: 600; color: var(--text); line-height: 1.05; }
+  .macro-strip-unit { font-size: 8px; color: var(--text3); font-family: 'Outfit', sans-serif; }
   .macro-strip-pct { font-size: 8.5px; color: var(--text3); font-family: 'DM Mono', monospace; }
-  .macro-strip-bar { height: 2px; background: var(--surface2); border-radius: 1px; overflow: hidden; margin-top: 3px; }
-  .macro-strip-fill { height: 100%; border-radius: 1px; transition: width 0.4s; }
+  .macro-goal { font-size: 8.5px; color: var(--text3); }
+  .macro-goal .delta-ok { color: var(--accent2); font-weight: 600; }
+  .macro-goal .delta-off { color: var(--warn); font-weight: 600; }
+  .macro-strip-bar { height: 3px; background: var(--surface2); border-radius: 2px; overflow: hidden; margin-top: 3px; }
+  .macro-strip-fill { height: 100%; border-radius: 2px; transition: width 0.4s; }
   /* "of which" sub-row: sugars & saturated fat, shown under the macro strip */
   .ofwhich-strip { display: grid; grid-template-columns: repeat(2, 1fr); gap: 0; border-bottom: 1px solid var(--border); }
   .ofwhich-cell { padding: 4px 8px; border-right: 1px solid var(--border); display: flex; align-items: baseline; justify-content: space-between; }
@@ -865,6 +905,13 @@
     input, select { min-height: 42px; font-size: 14px; }
     .log-del { min-width: 40px; min-height: 40px; }
   }
+  /* Medium screens: icon-only side nav */
+  @media (min-width: 721px) and (max-width: 1100px) {
+    .side-nav { width: 56px; padding: 14px 6px; }
+    .nav-item { justify-content: center; padding: 10px 6px; }
+    .nav-item .nav-label { display: none; }
+  }
+
   @media (max-width: 720px) {
     header { padding: 6px 12px; flex-wrap: wrap; height: auto; min-height: 48px; gap: 4px; }
     .db-badges .db-badge { display: none; }
@@ -874,6 +921,17 @@
     .tab-content, .tab-content.active { overflow: visible; }
     .analysis-sidebar { border-left: none; border-top: 3px solid var(--accent); width: 100% !important; overflow: visible; }
     .sidebar-drag { display: none; }
+    /* side nav becomes a fixed bottom icon bar */
+    .side-nav {
+      position: fixed; bottom: 0; left: 0; right: 0; z-index: 60;
+      width: 100%; flex-direction: row; padding: 4px 4px calc(4px + env(safe-area-inset-bottom));
+      background: var(--surface); border-right: none; border-top: 1px solid var(--border);
+      box-shadow: 0 -2px 14px rgba(0,0,0,0.08); overflow-y: visible;
+    }
+    .nav-item { flex-direction: column; gap: 2px; flex: 1; padding: 5px 2px; min-height: 48px; align-items: center; justify-content: center; border-radius: 9px; }
+    .nav-item .nav-label { font-size: 8.5px; white-space: nowrap; }
+    .nav-item:disabled { display: none; }   /* hide coming-soon items on phone */
+    body { padding-bottom: 66px; }          /* clear the bottom bar */
   }
 
   /* ── ANIMATIONS ── */
@@ -899,8 +957,8 @@
 <header>
   <div class="logo">
     <span class="logo-dot"></span>
-    NutriSearch
-    <span class="header-sub">CLINICAL NUTRITION ANALYSIS</span>
+    Kaana <span style="font-size:13px;opacity:0.75;margin-left:2px;">ކާނާ</span>
+    <span class="header-sub">CLINICAL NUTRITION SUITE</span>
   </div>
   <div class="db-badges">
     <span class="db-badge ifct">IFCT 2017</span>
@@ -919,17 +977,21 @@
 <div class="app">
 <div class="app-body">
 
+  <!-- SIDE NAV -->
+  <nav class="side-nav" id="sideNav">
+    <button class="nav-item active" data-view="planner" onclick="switchView('planner')"><span class="nav-icon">📅</span><span class="nav-label">Meal Planner</span></button>
+    <button class="nav-item" data-view="record" onclick="switchView('record')" disabled title="Coming soon"><span class="nav-icon">📋</span><span class="nav-label">Food Record</span></button>
+    <button class="nav-item" data-view="cycles" onclick="switchView('cycles')" disabled title="Coming soon"><span class="nav-icon">🍱</span><span class="nav-label">Menu Cycles</span></button>
+    <button class="nav-item" data-view="recipes" onclick="switchView('recipes')"><span class="nav-icon">🍳</span><span class="nav-label">Recipes</span></button>
+    <button class="nav-item" data-view="search" onclick="switchView('search')"><span class="nav-icon">🔍</span><span class="nav-label">Food Search</span></button>
+    <button class="nav-item" data-view="data" onclick="switchView('data')"><span class="nav-icon">🗄️</span><span class="nav-label">Import &amp; Data</span></button>
+  </nav>
+
   <!-- LEFT PANEL -->
   <div class="left-panel">
-    <div class="panel-tabs">
-      <button class="panel-tab active" onclick="switchTab('search')">🔍 Food Search</button>
-      <button class="panel-tab" onclick="switchTab('log')">📅 Meal Plans</button>
-      <button class="panel-tab" onclick="switchTab('recipe')">🍳 Recipe</button>
-      <button class="panel-tab" onclick="switchTab('custom')">＋ Custom</button>
-    </div>
 
     <!-- TAB 1: FOOD SEARCH -->
-    <div class="tab-content active" id="tab-search">
+    <div class="tab-content" id="tab-search">
       <div class="search-area">
         <div class="search-label">Search Foods</div>
         <div class="search-wrap">
@@ -1004,7 +1066,7 @@
     </div>
 
     <!-- TAB 2: MEAL LOG -->
-    <div class="tab-content" id="tab-log">
+    <div class="tab-content active" id="tab-log">
       <!-- PLAN BAR: patient plan header + day strip -->
       <div style="padding:10px 12px;border-bottom:1px solid var(--border);background:var(--surface2);">
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px;">
@@ -1044,11 +1106,11 @@
             <span id="logPortionEquiv" style="font-family:'DM Mono',monospace;font-size:10px;color:var(--text3);"></span>
             <select class="meal-select" id="logMealSelect" style="min-width:100px;font-size:11px;">
               <option value="breakfast">Breakfast</option>
-              <option value="morning_snack">Morning Snack</option>
+              <option value="morning_snack">Morning Tea</option>
               <option value="lunch" selected>Lunch</option>
-              <option value="afternoon_snack">Afternoon Snack</option>
+              <option value="afternoon_snack">Afternoon Tea</option>
               <option value="dinner">Dinner</option>
-              <option value="evening_snack">Evening Snack</option>
+              <option value="evening_snack">Supper</option>
             </select>
             <button class="add-btn" onclick="addFromLogSearch()" style="white-space:nowrap;">+ Add</button>
             <button class="preset-btn" style="border-style:dashed;white-space:nowrap;" onclick="promptAddMeasure('log')">+ measure</button>
@@ -3235,17 +3297,36 @@ let usdaCache = {};
 const USDA_KEY = 'DEMO_KEY'; // public demo key — works for moderate use
 
 const MEAL_NAMES = {
-  breakfast:'Breakfast', morning_snack:'Morning Snack', lunch:'Lunch',
-  afternoon_snack:'Afternoon Snack', dinner:'Dinner', evening_snack:'Evening Snack'
+  breakfast:'Breakfast', morning_snack:'Morning Tea', lunch:'Lunch',
+  afternoon_snack:'Afternoon Tea', dinner:'Dinner', evening_snack:'Supper'
 };
 
 // ════════════════════════════════════════════════
 // TAB SWITCHING
 // ════════════════════════════════════════════════
-function switchTab(tab) {
-  document.querySelectorAll('.panel-tab').forEach((t,i) => t.classList.toggle('active', ['search','log','recipe','custom'][i]===tab));
+// Sidebar views. Each view maps onto a tab-content panel; record/cycles/library
+// panels arrive in later phases (nav items stay disabled until then).
+const VIEW_MAP = {
+  planner: { tab: 'log' },
+  record:  { tab: null },   // Phase 4b
+  cycles:  { tab: null },   // Phase 5
+  recipes: { tab: 'recipe' },
+  search:  { tab: 'search' },
+  data:    { tab: 'custom' },
+};
+
+function switchView(view) {
+  const v = VIEW_MAP[view];
+  if (!v || !v.tab) return;
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === view));
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
-  document.getElementById('tab-'+tab).classList.add('active');
+  document.getElementById('tab-' + v.tab).classList.add('active');
+}
+
+// Legacy wrapper — a few code paths still call switchTab by tab name.
+function switchTab(tab) {
+  const view = { search:'search', log:'planner', recipe:'recipes', custom:'data' }[tab];
+  if (view) switchView(view);
 }
 
 // ════════════════════════════════════════════════
@@ -5727,11 +5808,18 @@ function updateAnalysis(label=null) {
   document.getElementById('macroGrid').innerHTML = macros.map(m => {
     const pct = m.tgt ? Math.min((m.val/m.tgt)*100, 150) : 0;
     const barClass = !m.tgt ? '' : pct>110 ? 'bar-over' : pct<80 ? 'bar-low' : 'bar-ok';
-    const pctStr = m.tgt ? `${pct.toFixed(0)}%` : '—';
+    // goal-delta line: "Goal 1800 · +23" — green when within ±10% of target
+    let goalHtml = `<div class="macro-goal">no goal set</div>`;
+    if (m.tgt) {
+      const delta = m.val - m.tgt;
+      const within = pct >= 90 && pct <= 110;
+      const deltaStr = (delta >= 0 ? '+' : '−') + (Math.abs(delta) < 10 ? Math.abs(delta).toFixed(1).replace(/\.0$/,'') : Math.round(Math.abs(delta)));
+      goalHtml = `<div class="macro-goal">Goal ${m.tgt}${m.unit} <span class="${within ? 'delta-ok' : 'delta-off'}">${deltaStr}</span></div>`;
+    }
     return `<div class="macro-strip-cell">
       <div class="macro-strip-name">${m.name}</div>
       <div><span class="macro-strip-val">${m.val}</span> <span class="macro-strip-unit">${m.unit}</span></div>
-      <div class="macro-strip-pct">${pctStr}</div>
+      ${goalHtml}
       <div class="macro-strip-bar"><div class="macro-strip-fill ${barClass}" style="width:${Math.min(pct,100)}%"></div></div>
     </div>`;
   }).join('');
@@ -5910,7 +5998,7 @@ function backupExport() {
   NS_BACKUP_KEYS.forEach(k => {
     try { const s = localStorage.getItem(k); if (s != null) data[k] = JSON.parse(s); } catch(e){}
   });
-  const payload = { app:'nutrisearch', schemaVersion:1, exported:new Date().toISOString(), data };
+  const payload = { app:'kaana', schemaVersion:1, exported:new Date().toISOString(), data };
   const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
@@ -5925,7 +6013,7 @@ function backupImport(input) {
   reader.onload = e => {
     let payload;
     try { payload = JSON.parse(e.target.result); } catch(err){ showToast('Invalid backup file'); return; }
-    if (!payload || payload.app !== 'nutrisearch' || !payload.data) { showToast('Not a NutriSearch backup file'); return; }
+    if (!payload || !['kaana','nutrisearch'].includes(payload.app) || !payload.data) { showToast('Not a Kaana backup file'); return; }
     const replace = confirm('Restore backup?\n\nOK = REPLACE current data with the backup.\nCancel = MERGE backup into current data (keeps both).');
     NS_BACKUP_KEYS.forEach(k => {
       if (!(k in payload.data)) return;
@@ -5997,7 +6085,7 @@ window.addEventListener('load', () => {
     function onMove(e) {
       const delta = startX - e.clientX; // dragging left = wider sidebar
       const newW = Math.max(200, Math.min(520, startW + delta));
-      appBody.style.gridTemplateColumns = `1fr ${newW}px`;
+      appBody.style.gridTemplateColumns = `auto 1fr ${newW}px`;
     }
 
     function onUp() {
