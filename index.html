@@ -273,6 +273,7 @@
   .tag-usda   { background: rgba(20,90,50,0.12);   color: var(--tag-usda); }
   .tag-custom { background: rgba(108,52,131,0.12); color: var(--tag-custom); }
   .tag-ausnut { background: rgba(26,110,74,0.12); color: var(--tag-ausnut); }
+  .tag-recipe { background: rgba(45,106,79,0.14); color: var(--accent); }
 
   .no-results { padding: 40px 16px; text-align: center; color: var(--text3); }
   .no-results svg { margin-bottom: 12px; opacity: 0.3; }
@@ -954,6 +955,44 @@
   .period-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
   .period-chip input { display: none; }
   .highlighted-meal { box-shadow: inset 3px 0 0 var(--accent); background: rgba(45,106,79,0.035); }
+
+  /* ── RECIPE LIBRARY ── */
+  .lib-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(210px, 1fr)); gap: 12px; }
+  .lib-card {
+    background: var(--surface); border: 1px solid var(--border); border-radius: 13px;
+    overflow: hidden; box-shadow: var(--shadow); display: flex; flex-direction: column;
+  }
+  .lib-card:hover { box-shadow: var(--shadow-lg); }
+  .lib-photo {
+    height: 84px; display: flex; align-items: center; justify-content: center;
+    font-size: 38px; background: linear-gradient(135deg, var(--surface2), var(--accent-light));
+  }
+  .lib-photo img { width: 100%; height: 100%; object-fit: cover; }
+  .lib-body { padding: 9px 11px 11px; display: flex; flex-direction: column; gap: 5px; flex: 1; }
+  .lib-name { font-size: 12.5px; font-weight: 600; color: var(--text); line-height: 1.3;
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
+  .lib-stats { font-size: 10px; color: var(--text3); font-family: 'DM Mono', monospace; }
+  .lib-tags { display: flex; gap: 3px; flex-wrap: wrap; align-items: center; }
+  .lib-tag { font-size: 8.5px; padding: 2px 6px; border-radius: 8px; background: var(--surface2); color: var(--text2); }
+  .lib-allergens { font-size: 8.5px; color: var(--warn); }
+  .lib-actions { display: flex; gap: 5px; margin-top: auto; padding-top: 4px; align-items: center; }
+
+  /* ── MODAL ── */
+  .kaana-modal-backdrop {
+    position: fixed; inset: 0; background: rgba(26,23,20,0.45); z-index: 300;
+    display: flex; align-items: center; justify-content: center; padding: 16px;
+  }
+  .kaana-modal {
+    background: var(--surface); border-radius: 15px; box-shadow: var(--shadow-lg);
+    padding: 18px; width: 100%; max-width: 430px; animation: tabFade 160ms ease;
+  }
+  /* The planner tab scrolls as ONE column — grid, editor and meal list share the
+     scroll instead of fighting for fixed heights (fixed sections crushed the list). */
+  #tab-log { overflow-y: auto; overflow-x: hidden; display: block; }
+  #tab-log.active { display: block; }
+  #tab-log .meal-log-area { flex: none; overflow: visible; min-height: 0; }
+  #tab-log .daily-total-bar { position: sticky; bottom: 0; z-index: 30; }
+  #planGridWrap { max-height: none; overflow-y: visible; }
   #tab-log.editor-collapsed .search-area,
   #tab-log.editor-collapsed .meal-log-footer,
   #tab-log.editor-collapsed .meal-log-area,
@@ -1214,9 +1253,22 @@
       </div>
     </div>
 
-    <!-- TAB 3: RECIPE -->
+    <!-- RECIPE LIBRARY -->
+    <div class="tab-content" id="tab-library">
+      <div style="padding:14px 16px;border-bottom:1px solid var(--border);flex-shrink:0;background:var(--surface2);">
+        <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
+          <input class="field-input" id="libSearch" type="text" placeholder="Search recipes…" style="flex:1;" oninput="renderLibrary()">
+          <button class="btn-primary" style="white-space:nowrap;" onclick="clearRecipe();openRecipeBuilder()">＋ New recipe</button>
+        </div>
+        <div id="libFilters" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
+      </div>
+      <div id="libraryGrid" style="flex:1;overflow-y:auto;padding:14px 16px;"></div>
+    </div>
+
+    <!-- RECIPE BUILDER / EDITOR -->
     <div class="tab-content" id="tab-recipe">
       <div class="recipe-area" id="recipeArea">
+        <button class="btn-secondary" style="align-self:flex-start;font-size:11px;padding:5px 10px;margin-bottom:8px;" onclick="switchView('recipes')">← Recipe library</button>
         <div class="recipe-meta">
           <div class="field-group" style="margin-bottom:8px;">
             <div class="field-label">Recipe Name</div>
@@ -1299,6 +1351,22 @@ Olive Oil 25 ml"></textarea>
         <div class="section-title" style="margin-bottom:8px;">Ingredients</div>
         <div class="recipe-items" id="recipeItems">
           <div style="font-size:12px;color:var(--text3);padding:12px 0;">Search for a food above and click "+ Add" to build your recipe.</div>
+        </div>
+        <!-- METHOD / NOTES / TAGS -->
+        <div class="form-section" style="margin-top:12px;">
+          <div class="form-section-title">Method</div>
+          <textarea class="form-input" id="recipeMethod" rows="4" placeholder="One step per line, e.g.
+Sauté the onion and garlic in oil until soft.
+Add the fish and turmeric; cook 5 minutes.
+Pour in coconut milk and simmer 10 minutes." style="width:100%;resize:vertical;font-size:12px;box-sizing:border-box;"></textarea>
+        </div>
+        <div class="form-section">
+          <div class="form-section-title">Dietitian notes</div>
+          <textarea class="form-input" id="recipeNotes" rows="2" placeholder="Clinical notes — e.g. suits renal patients if coconut milk halved; good post-op soft option." style="width:100%;resize:vertical;font-size:12px;box-sizing:border-box;"></textarea>
+        </div>
+        <div class="form-section">
+          <div class="form-section-title">Tags <span style="font-weight:400;color:var(--text3);font-size:10px;">— powers auto-select &amp; compliance</span></div>
+          <div id="recipeTagChips"></div>
         </div>
         <div id="savedRecipesList"></div>
       </div>
@@ -3377,12 +3445,19 @@ const MEAL_NAMES = {
 // panels arrive in later phases (nav items stay disabled until then).
 const VIEW_MAP = {
   planner: { tab: 'log' },
-  record:  { tab: null },   // Phase 4b
-  cycles:  { tab: null },   // Phase 5
-  recipes: { tab: 'recipe' },
+  record:  { tab: null },      // Phase 4b
+  cycles:  { tab: null },      // Phase 5
+  recipes: { tab: 'library' }, // Library is the Recipes home; the builder is reached from it
   search:  { tab: 'search' },
   data:    { tab: 'custom' },
 };
+
+// Show the recipe builder/editor while keeping "Recipes" highlighted in the nav
+function openRecipeBuilder(){
+  document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === 'recipes'));
+  document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
+  document.getElementById('tab-recipe').classList.add('active');
+}
 
 function switchView(view) {
   const v = VIEW_MAP[view];
@@ -4528,6 +4603,12 @@ function foodIndex(){
 
 function slimItem(it){
   const f = it.food || {};
+  // recipe reference: keep the rref plus a per-100g snapshot for resilience
+  if (it.rref) {
+    const out = { name: f.name || it.name, grams: it.grams, portionLabel: it.portionLabel, rref: it.rref };
+    out.snap = {}; NUTRIENT_KEYS.forEach(k => out.snap[k] = parseFloat(f[k]) || 0);
+    return out;
+  }
   const out = { name: f.name, grams: it.grams, portionLabel: it.portionLabel };
   const staticDb = ['ifct','afcd','ausnut','nz'].includes(f.db);
   if (staticDb && f.code) out.ref = { db: f.db, code: f.code };
@@ -4538,6 +4619,15 @@ function slimItem(it){
   return out;
 }
 function fattenItem(s){
+  // recipe reference: rebuild fresh from the bank (recipe may have been edited)
+  if (s.rref) {
+    const rec = typeof recipeById === 'function' ? recipeById(s.rref.recipeId) : null;
+    if (rec) return recipeSlotItem(rec, s.rref.servings);
+    if (s.snap) {
+      const food = Object.assign({ name: (s.name || 'Recipe') + ' (deleted recipe — saved values)', cat: 'Recipe', db: 'recipe', code: s.rref.recipeId }, s.snap);
+      return { food, grams: s.grams, portionLabel: s.portionLabel, rref: s.rref, _missing: true };
+    }
+  }
   let food = null;
   if (s.ref) {
     food = foodIndex().get(s.ref.db + ':' + s.ref.code) || customFoods.find(x => x.code === s.ref.code) || null;
@@ -5727,9 +5817,39 @@ function removeRecipeItem(i) { recipeItems.splice(i,1); renderRecipeItems(); }
 function clearRecipe() {
   recipeItems = [];
   editingRecipeId = null;
-  ['recipeName','recipeServingSize','recipeFinishedWeight'].forEach(id => { const e=document.getElementById(id); if(e) e.value=''; });
+  ['recipeName','recipeServingSize','recipeFinishedWeight','recipeMethod','recipeNotes'].forEach(id => { const e=document.getElementById(id); if(e) e.value=''; });
   const sv=document.getElementById('recipeServings'); if(sv) sv.value=1;
+  editorTags = blankTags();
+  renderRecipeTagChips();
   renderRecipeItems();
+}
+
+// ── Recipe editor tag chips ──
+function toggleEditorTag(group, key){
+  if (!editorTags) editorTags = blankTags();
+  if (group === 'iddsi') {
+    editorTags.iddsi = editorTags.iddsi === key ? null : key;
+  } else {
+    const arr = editorTags[group];
+    const i = arr.indexOf(key);
+    if (i >= 0) arr.splice(i, 1); else arr.push(key);
+  }
+  renderRecipeTagChips();
+}
+
+function renderRecipeTagChips(){
+  const el = document.getElementById('recipeTagChips'); if (!el) return;
+  if (!editorTags) editorTags = blankTags();
+  const chip = (group, key, label, on) =>
+    `<span class="period-chip ${on?'on':''}" style="font-size:10px;padding:3px 8px;" onclick="toggleEditorTag('${group}', ${typeof key === 'number' ? key : `'${key}'`})">${label}</span>`;
+  const row = (title, html) => `<div style="margin-bottom:6px;"><span style="font-size:9px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px;">${title}</span><div style="display:flex;gap:4px;flex-wrap:wrap;">${html}</div></div>`;
+  el.innerHTML =
+    row('Therapeutic diets', TAG_DIETS.map(([k,l]) => chip('diets', k, l, editorTags.diets.includes(k))).join('')) +
+    row('Contains allergens', TAG_ALLERGENS.map(([k,l]) => chip('allergens', k, l, editorTags.allergens.includes(k))).join('')) +
+    row('IDDSI texture', TAG_IDDSI.map(([k,l]) => chip('iddsi', k, l, editorTags.iddsi === k)).join('')) +
+    row('Lifestyle', TAG_LIFESTYLE.map(([k,l]) => chip('lifestyle', k, l, editorTags.lifestyle.includes(k))).join('')) +
+    row('Cuisine', TAG_CUISINE.map(([k,l]) => chip('cuisine', k, l, editorTags.cuisine.includes(k))).join('')) +
+    row('Suits meal periods', ALL_PERIODS.map(m => chip('mealPeriods', m, MEAL_NAMES[m], editorTags.mealPeriods.includes(m))).join(''));
 }
 
 // ════════════════════════════════════════════════
@@ -5821,30 +5941,48 @@ function persistSavedRecipes() {
   nsSave('ns_recipes', savedRecipes);
 }
 
+let editorTags = null;   // working tag state for the recipe editor (null until initialised)
+
 function saveRecipe() {
   if (recipeItems.length === 0) { showToast('Add ingredients first'); return; }
   const name = (document.getElementById('recipeName').value || '').trim();
   if (!name) { showToast('Give the recipe a name first'); return; }
-  const rec = {
+  loadSavedRecipes();
+  const existingIdx = savedRecipes.findIndex(r => r.id === editingRecipeId);
+  const prev = existingIdx >= 0 ? savedRecipes[existingIdx] : null;
+  const methodText = (document.getElementById('recipeMethod')?.value || '');
+  const fat = {
     id: editingRecipeId || ('R'+Date.now()),
+    v: 2,
     name,
     servings: parseFloat(document.getElementById('recipeServings').value)||1,
     servingSize: document.getElementById('recipeServingSize').value.trim(),
     finishedWeight: parseFloat(document.getElementById('recipeFinishedWeight').value)||null,
     items: recipeItems.map(i => ({ food: i.food, grams: i.grams, portionLabel: i.portionLabel, cookMethod: i.cookMethod || '' })),
+    method: methodText.split('\n').map(s => s.replace(/^\s*(?:\d+[.)]\s*|[-*•]\s*)/,'').trim()).filter(Boolean),
+    notes: (document.getElementById('recipeNotes')?.value || '').trim(),
+    tags: editorTags ? JSON.parse(JSON.stringify(editorTags)) : (prev && prev.tags) || blankTags(),
+    tagsVerified: prev && JSON.stringify(prev.tags||{}) === JSON.stringify(editorTags||prev.tags||{}) ? !!prev.tagsVerified : false,
+    itemsVerified: true,
+    photoId: prev ? prev.photoId || null : null,
+    source: prev ? prev.source || 'user' : 'user',
+    created: prev && prev.created || new Date().toISOString(),
+    modified: new Date().toISOString(),
   };
-  loadSavedRecipes();
-  const existing = savedRecipes.findIndex(r => r.id === rec.id);
-  if (existing >= 0) savedRecipes[existing] = rec; else savedRecipes.push(rec);
-  editingRecipeId = rec.id;
+  fat._cache = recipeCacheOf(fat);
+  const stored = storageRecipe(fat);
+  if (existingIdx >= 0) savedRecipes[existingIdx] = stored; else savedRecipes.push(stored);
+  editingRecipeId = fat.id;
   persistSavedRecipes();
+  invalidateRecipeBank();
   renderSavedRecipes();
-  showToast(existing >= 0 ? `Updated recipe: ${name}` : `Saved recipe: ${name}`);
+  if (typeof renderLibrary === 'function') renderLibrary();
+  showToast(existingIdx >= 0 ? `Updated recipe: ${name}` : `Saved recipe: ${name}`);
 }
 
 function loadRecipe(id) {
-  loadSavedRecipes();
-  const rec = savedRecipes.find(r => r.id === id);
+  invalidateRecipeBank();
+  const rec = recipeById(id);
   if (!rec) return;
   recipeItems = rec.items.map(i => ({ food: i.food, grams: i.grams, portionLabel: i.portionLabel, cookMethod: i.cookMethod || '' }));
   editingRecipeId = rec.id;
@@ -5852,6 +5990,10 @@ function loadRecipe(id) {
   document.getElementById('recipeServings').value = rec.servings || 1;
   document.getElementById('recipeServingSize').value = rec.servingSize || '';
   document.getElementById('recipeFinishedWeight').value = rec.finishedWeight || '';
+  const mEl = document.getElementById('recipeMethod'); if (mEl) mEl.value = (rec.method||[]).join('\n');
+  const nEl = document.getElementById('recipeNotes');  if (nEl) nEl.value = rec.notes || '';
+  editorTags = JSON.parse(JSON.stringify(rec.tags || blankTags()));
+  renderRecipeTagChips();
   renderRecipeItems();
   showToast(`Loaded: ${rec.name}`);
 }
@@ -5880,6 +6022,224 @@ function renderSavedRecipes() {
         <button class="log-del" onclick="deleteRecipe('${r.id}', event)">×</button>
       </div>
     `).join('');
+}
+
+// ════════════════════════════════════════════════
+// RECIPE BANK v2
+// Storage (ns_recipes) holds slim items (refs/snaps, like plans);
+// recipeBank() returns fattened working copies with a nutrition cache.
+// ════════════════════════════════════════════════
+const TAG_DIETS     = [['low-fodmap','Low FODMAP'],['gluten-free','Gluten-free'],['low-sodium','Low sodium'],['diabetic','Diabetic-friendly'],['hehp','HEHP'],['renal','Renal']];
+const TAG_ALLERGENS = [['milk','Milk'],['egg','Egg'],['peanut','Peanut'],['tree-nut','Tree nut'],['fish','Fish'],['shellfish','Shellfish'],['soy','Soy'],['wheat','Wheat'],['sesame','Sesame']];
+const TAG_LIFESTYLE = [['vegetarian','Vegetarian'],['vegan','Vegan'],['halal','Halal']];
+const TAG_CUISINE   = [['maldivian','Maldivian'],['south-asian','South Asian'],['western','Western'],['east-asian','East Asian']];
+const TAG_IDDSI     = [[7,'IDDSI 7'],[6,'IDDSI 6 soft'],[5,'IDDSI 5 minced'],[4,'IDDSI 4 pureed']];
+
+function blankTags(){ return { diets:[], allergens:[], iddsi:null, lifestyle:[], cuisine:[], mealPeriods:[] }; }
+
+function slimRecipeItem(it){
+  const f = it.food || {};
+  const out = { name: f.name, grams: it.grams, portionLabel: it.portionLabel, cookMethod: it.cookMethod || '' };
+  if (f.db && f.code) out.ref = { db: f.db, code: f.code };
+  if (!f.db || !['ifct','afcd','ausnut','nz'].includes(f.db)) {
+    out.snap = {}; NUTRIENT_KEYS.forEach(k => out.snap[k] = parseFloat(f[k]) || 0);
+  }
+  return out;
+}
+function fattenRecipeItem(s){
+  if (s.food) return { food: s.food, grams: s.grams, portionLabel: s.portionLabel, cookMethod: s.cookMethod || '' };  // v1 fat item
+  const base = fattenItem(s);
+  base.cookMethod = s.cookMethod || '';
+  return base;
+}
+
+// Pure nutrition for a fattened recipe: totals, per-serve, per-100g of finished dish
+function recipeNutrition(rec){
+  const items = (rec.items || []).map(it => ({ food: it.food, grams: it.grams,
+    retention: it.cookMethod ? retentionFor(it.food, it.cookMethod) : null }));
+  const totals = computeTotals(items);
+  const rawWeight = items.reduce((s, it) => s + (parseFloat(it.grams) || 0), 0);
+  const fw = parseFloat(rec.finishedWeight);
+  const dishWeight = fw > 0 ? fw : rawWeight;
+  const servings = Math.max(1, parseFloat(rec.servings) || 1);
+  const perServe = {}, per100 = {};
+  NUTRIENT_KEYS.forEach(k => {
+    perServe[k] = totals[k] / servings;
+    per100[k] = dishWeight > 0 ? totals[k] / dishWeight * 100 : 0;
+  });
+  return { totals, perServe, per100, perServeGrams: dishWeight / servings, dishWeight, rawWeight };
+}
+
+function recipeCacheOf(rec){
+  const rn = recipeNutrition(rec);
+  const perServe = {}; NUTRIENT_KEYS.forEach(k => perServe[k] = +rn.perServe[k].toFixed(2));
+  return { perServe, perServeGrams: Math.round(rn.perServeGrams) };
+}
+
+function normalizeRecipe(raw){
+  const r = Object.assign({ v:2, method:[], notes:'', tags:null, tagsVerified:false, itemsVerified:true,
+    photoId:null, source:'user', created:null, modified:null }, raw);
+  r.tags = Object.assign(blankTags(), raw && raw.tags || {});
+  r.items = (raw && raw.items || []).map(fattenRecipeItem);
+  r._cache = recipeCacheOf(r);
+  return r;
+}
+function storageRecipe(fat){
+  const copy = Object.assign({}, fat, { items: (fat.items || []).map(slimRecipeItem) });
+  return copy;
+}
+
+let _recipeBank = null;
+function recipeBank(){
+  if (!_recipeBank) { loadSavedRecipes(); _recipeBank = savedRecipes.map(normalizeRecipe); }
+  return _recipeBank;
+}
+function invalidateRecipeBank(){ _recipeBank = null; }
+function recipeById(id){ return recipeBank().find(r => r.id === id) || null; }
+
+// A recipe placed into a plan/record slot: behaves as a plain {food, grams} item,
+// so computeTotals / analysis / print / export all work unchanged.
+function recipeSlotItem(rec, servings){
+  servings = parseFloat(servings) || 1;
+  const rn = recipeNutrition(rec);
+  const food = { name: rec.name, cat: 'Recipe', db: 'recipe', code: rec.id };
+  NUTRIENT_KEYS.forEach(k => food[k] = +rn.per100[k].toFixed(3));
+  const grams = Math.round(rn.perServeGrams * servings);
+  const sLabel = servings === 1 ? '1 serve' : servings + ' serves';
+  return { food, grams, portionLabel: `${sLabel} (${grams}g)`, rref: { recipeId: rec.id, servings } };
+}
+
+function addRecipeToPlan(recipeId, dayIdx, meal, servings){
+  const rec = recipeById(recipeId);
+  if (!rec) { showToast('Recipe not found'); return; }
+  if (!currentPlan || !currentPlan.days[dayIdx]) { showToast('Pick a valid day'); return; }
+  switchPlanDay(dayIdx);
+  if (!mealLog[meal]) mealLog[meal] = [];
+  mealLog[meal].push(recipeSlotItem(rec, servings));
+  renderMealLog();
+  updateAnalysis();
+  showToast(`Added ${rec.name} to ${currentPlan.days[dayIdx].label} · ${MEAL_NAMES[meal]}`);
+}
+
+// ── Diet code seeds (rules used fully by Menu Cycles; seeded at migration) ──
+const DIET_CODE_SEEDS = [
+  { id:'dc_regular',  code:'REG',  name:'Regular',            rules:{ kcal:{min:1500,max:2600}, prot:{min:60} },                             requiredTags:[], excludedAllergens:[], notes:'' },
+  { id:'dc_lowna',    code:'LNA',  name:'Low sodium',         rules:{ na:{max:2000} },                                                       requiredTags:['low-sodium'], excludedAllergens:[], notes:'≤2 g Na/day' },
+  { id:'dc_diabetic', code:'DIA',  name:'Diabetic',           rules:{ kcal:{min:1400,max:2200}, sugar:{max:50} },                            requiredTags:['diabetic'], excludedAllergens:[], notes:'' },
+  { id:'dc_renal',    code:'REN',  name:'Renal',              rules:{ k:{max:2500}, p:{max:1000}, na:{max:2300}, prot:{min:60} },            requiredTags:['renal'], excludedAllergens:[], notes:'Pre-dialysis defaults — adjust per patient' },
+  { id:'dc_fodmap',   code:'LFM',  name:'Low FODMAP',         rules:{},                                                                      requiredTags:['low-fodmap'], excludedAllergens:[], notes:'' },
+  { id:'dc_hehp',     code:'HEHP', name:'High energy high protein', rules:{ kcal:{min:2200}, prot:{min:100} },                               requiredTags:[], excludedAllergens:[], notes:'' },
+  { id:'dc_texture',  code:'TMD',  name:'Texture-modified',   rules:{},                                                                      requiredTags:[], excludedAllergens:[], notes:'Pair with an IDDSI level per patient' },
+];
+
+// ════════════════════════════════════════════════
+// RECIPE LIBRARY VIEW
+// ════════════════════════════════════════════════
+const CUISINE_EMOJI = { 'maldivian':'🐟', 'south-asian':'🍛', 'western':'🥗', 'east-asian':'🍜' };
+let libFilterState = { diets: [], lifestyle: [], cuisine: [] };
+
+function toggleLibFilter(group, key){
+  const arr = libFilterState[group];
+  const i = arr.indexOf(key);
+  if (i >= 0) arr.splice(i, 1); else arr.push(key);
+  renderLibFilters();
+  renderLibrary();
+}
+
+function renderLibFilters(){
+  const el = document.getElementById('libFilters'); if (!el) return;
+  const chip = (group, key, label) =>
+    `<span class="period-chip ${libFilterState[group].includes(key)?'on':''}" style="font-size:10px;padding:3px 8px;" onclick="toggleLibFilter('${group}','${key}')">${label}</span>`;
+  el.innerHTML =
+    TAG_DIETS.map(([k,l]) => chip('diets', k, l)).join('') +
+    TAG_LIFESTYLE.map(([k,l]) => chip('lifestyle', k, l)).join('') +
+    TAG_CUISINE.map(([k,l]) => chip('cuisine', k, (CUISINE_EMOJI[k]||'') + ' ' + l)).join('');
+}
+
+function renderLibrary(){
+  const el = document.getElementById('libraryGrid'); if (!el) return;
+  const q = (document.getElementById('libSearch')?.value || '').trim().toLowerCase();
+  let list = recipeBank();
+  if (q) list = list.filter(r => (r.name||'').toLowerCase().includes(q) || (r.notes||'').toLowerCase().includes(q));
+  if (libFilterState.diets.length)     list = list.filter(r => libFilterState.diets.every(t => r.tags.diets.includes(t)));
+  if (libFilterState.lifestyle.length) list = list.filter(r => libFilterState.lifestyle.every(t => r.tags.lifestyle.includes(t)));
+  if (libFilterState.cuisine.length)   list = list.filter(r => libFilterState.cuisine.some(t => r.tags.cuisine.includes(t)));
+
+  if (!list.length) {
+    el.innerHTML = `<div style="text-align:center;color:var(--text3);padding:48px 16px;font-size:13px;">
+      ${recipeBank().length ? 'No recipes match those filters.' : 'No recipes yet — build one with ＋ New recipe,<br>or paste one from a website in the builder.'}</div>`;
+    return;
+  }
+
+  el.innerHTML = `<div class="lib-grid">` + list.map(r => {
+    const ps = r._cache && r._cache.perServe || {};
+    const emoji = (r.tags.cuisine||[]).map(c => CUISINE_EMOJI[c]).find(Boolean) || '🍽️';
+    const tagChips = [
+      ...r.tags.diets.map(t => (TAG_DIETS.find(x=>x[0]===t)||[])[1]),
+      ...r.tags.lifestyle.map(t => (TAG_LIFESTYLE.find(x=>x[0]===t)||[])[1]),
+      ...(r.tags.iddsi ? ['IDDSI ' + r.tags.iddsi] : []),
+    ].filter(Boolean).slice(0,3);
+    const allergenNote = r.tags.allergens.length
+      ? `<span class="lib-allergens" title="Contains: ${r.tags.allergens.join(', ')}">⚠ ${r.tags.allergens.length} allergen${r.tags.allergens.length>1?'s':''}</span>` : '';
+    return `<div class="lib-card">
+      <div class="lib-photo">${emoji}</div>
+      <div class="lib-body">
+        <div class="lib-name" title="${(r.name||'').replace(/"/g,'&quot;')}">${r.name}</div>
+        <div class="lib-stats">${Math.round(ps.kcal||0)} kcal · ${(ps.prot||0).toFixed(1)}g prot / serve · serves ${r.servings||1}</div>
+        <div class="lib-tags">${tagChips.map(t=>`<span class="lib-tag">${t}</span>`).join('')}${allergenNote}
+          ${r.tagsVerified ? '<span class="lib-tag" style="background:var(--accent-light);color:var(--accent);" title="Tags clinically reviewed">✓</span>' : '<span class="lib-tag" style="opacity:0.55;" title="Tags not yet reviewed">untagged/unreviewed</span>'}</div>
+        <div class="lib-actions">
+          <button class="btn-primary" style="font-size:10.5px;padding:5px 10px;flex:1;" onclick="showAddToPlanModal('${r.id}')">＋ Plan</button>
+          <button class="btn-secondary" style="font-size:10.5px;padding:5px 10px;" onclick="loadRecipe('${r.id}');openRecipeBuilder()">✎ Edit</button>
+          <button class="log-del" onclick="deleteRecipe('${r.id}', event);renderLibrary()">×</button>
+        </div>
+      </div>
+    </div>`;
+  }).join('') + `</div>`;
+}
+
+// ── Add-to-plan modal ──
+function showAddToPlanModal(recipeId){
+  const rec = recipeById(recipeId); if (!rec) return;
+  let modal = document.getElementById('addPlanModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'addPlanModal';
+    modal.className = 'kaana-modal-backdrop';
+    modal.onclick = e => { if (e.target === modal) modal.remove(); };
+    document.body.appendChild(modal);
+  }
+  const dayOpts = currentPlan.days.map((d,i) => `<option value="${i}" ${i===currentDayIdx?'selected':''}>${d.label}</option>`).join('');
+  const mealOpts = (currentPlan.mealPeriods && currentPlan.mealPeriods.length ? currentPlan.mealPeriods : ALL_PERIODS)
+    .map(m => `<option value="${m}" ${m==='lunch'?'selected':''}>${MEAL_NAMES[m]}</option>`).join('');
+  const ps = rec._cache && rec._cache.perServe || {};
+  modal.innerHTML = `<div class="kaana-modal">
+    <div style="font-size:14px;font-weight:600;margin-bottom:2px;">${rec.name}</div>
+    <div style="font-size:11px;color:var(--text3);margin-bottom:12px;">${Math.round(ps.kcal||0)} kcal · ${(ps.prot||0).toFixed(1)}g protein per serve</div>
+    <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:flex-end;">
+      <div class="field-group" style="flex:1;min-width:90px;"><div class="field-label">Day</div><select class="field-input" id="apmDay">${dayOpts}</select></div>
+      <div class="field-group" style="flex:1;min-width:110px;"><div class="field-label">Meal</div><select class="field-input" id="apmMeal">${mealOpts}</select></div>
+      <div class="field-group" style="width:74px;"><div class="field-label">Serves</div><input class="field-input" id="apmServes" type="number" value="1" min="0.25" step="0.25"></div>
+    </div>
+    <div style="display:flex;gap:8px;margin-top:14px;">
+      <button class="btn-primary" style="flex:1;" onclick="addRecipeToPlan('${rec.id}', parseInt(document.getElementById('apmDay').value), document.getElementById('apmMeal').value, parseFloat(document.getElementById('apmServes').value)||1);document.getElementById('addPlanModal').remove();switchView('planner')">Add to plan →</button>
+      <button class="btn-secondary" onclick="document.getElementById('addPlanModal').remove()">Cancel</button>
+    </div>
+  </div>`;
+}
+
+// ── One-time migration to schema v2 (auto-backup first) ──
+function runMigrations(){
+  if ((nsSettings.schemaVersion || 1) >= 2) return;
+  const hasData = ['ns_recipes','ns_plans'].some(k => { try { return (JSON.parse(localStorage.getItem(k))||[]).length > 0; } catch(e){ return false; } });
+  if (hasData) { try { backupExport(); showToast('Upgrading your data — a safety backup was downloaded first'); } catch(e){} }
+  loadSavedRecipes();
+  savedRecipes = savedRecipes.map(raw => raw.v >= 2 ? raw : storageRecipe(normalizeRecipe(raw)));
+  persistSavedRecipes();
+  if (!localStorage.getItem('ns_diet_codes')) nsSave('ns_diet_codes', DIET_CODE_SEEDS);
+  nsSettings.schemaVersion = 2;
+  persistSettings();
+  invalidateRecipeBank();
 }
 
 // ════════════════════════════════════════════════
@@ -6187,7 +6547,7 @@ function nsSave(key, obj) {
   catch(e) { showToast('Storage full — export a backup, then delete old plans or recipes'); return false; }
 }
 
-const NS_BACKUP_KEYS = ['ns_custom_foods','ns_recipes','ns_user_measures','ns_plans','ns_settings','ns_seeded_codes'];
+const NS_BACKUP_KEYS = ['ns_custom_foods','ns_recipes','ns_user_measures','ns_plans','ns_settings','ns_seeded_codes','ns_diet_codes','ns_cycles','ns_records'];
 
 function backupExport() {
   const data = {};
@@ -6253,8 +6613,12 @@ window.addEventListener('load', () => {
   const ys = document.getElementById('recipeYieldSelect');
   if (ys) ys.innerHTML = '<option value="">estimate from cooking type…</option>' +
     YIELD_FACTORS.map((y,i) => `<option value="${i}">${y.label} (×${y.factor})</option>`).join('');
+  runMigrations();
   initPlans();
   setAnalysisScope('day');
+  renderLibFilters();
+  renderLibrary();
+  renderRecipeTagChips();
   // PWA: register service worker on https only (skips file:// and local dev)
   if (location.protocol === 'https:' && 'serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(()=>{});
