@@ -5201,15 +5201,23 @@ function showComponentStandardsModal(){
     ).join('');
   };
   const rowFor = (scope, key) => `<tr><td style="white-space:nowrap;font-weight:600;padding:2px 8px 2px 0;">${scope==='meal'?MEAL_NAMES[key]+' (total)':componentLabel(key)}</td>${bandCells(scope,key,'band1')}<td style="width:8px;"></td>${bandCells(scope,key,'band2')}</tr>`;
-  const compRows = Object.keys(COMPONENT_STANDARD_SEEDS).map(c => rowFor('component', c)).join('');
-  const mealRows = Object.keys(MEAL_STANDARD_SEEDS).map(m => rowFor('meal', m)).join('');
+  const compRows = Object.keys(componentStandards()).map(c => rowFor('component', c)).join('');
+  const mealRows = Object.keys(mealStandards()).map(m => rowFor('meal', m)).join('');
   const headGroup = label => `<th colspan="3" style="text-align:center;padding:2px 4px;border-bottom:2px solid var(--border);">${label}</th>`;
   const headMetrics = () => CSTD_KEYS.map(m=>`<th style="text-align:left;padding:2px 3px;font-weight:600;font-size:9px;">${CSTD_LABELS[m]}</th>`).join('');
+  const profOpts = Object.entries(STANDARD_PROFILES).map(([id,p]) => `<option value="${id}" ${id===standardsProfileId()?'selected':''}>${p.label}</option>`).join('');
+  const b1label = standardsProfileId()==='bda' ? 'Band 1 (vulnerable)' : 'Band 1 (high protein)';
+  const b2label = standardsProfileId()==='bda' ? 'Band 2 (well)' : 'Band 2 (moderate)';
   modal.innerHTML = `<div class="kaana-modal" style="max-width:560px;max-height:84vh;overflow:auto;">
-    <div style="font-size:15px;font-weight:600;margin-bottom:2px;">Menu standards <span style="font-weight:400;font-size:11px;color:var(--text3);">per serve · two bands</span></div>
-    <div style="font-size:10px;color:var(--text3);margin-bottom:8px;">Band 1 = high protein, Band 2 = moderate (Victorian NQFS, converted to kcal). A choice meets whichever band it satisfies; below Band 2 = fails. Breakfast is judged on the meal total, not per component. Blank = no rule.</div>
+    <div style="display:flex;align-items:center;justify-content:space-between;gap:8px;margin-bottom:2px;">
+      <div style="font-size:15px;font-weight:600;">Menu standards <span style="font-weight:400;font-size:11px;color:var(--text3);">per serve</span></div>
+      <label style="font-size:10px;color:var(--text3);display:flex;align-items:center;gap:5px;">Source
+        <select class="field-input" style="font-size:11px;padding:3px 6px;" onchange="setStandardsProfile(this.value);showComponentStandardsModal();">${profOpts}</select>
+      </label>
+    </div>
+    <div style="font-size:10px;color:var(--text3);margin-bottom:8px;">Two bands: a choice meets whichever it satisfies; below both = fails. Breakfast${standardsProfileId()==='bda'?', lunch & dinner are':' is'} judged on the meal total. Blank = no rule. Edits are saved per source.</div>
     <table style="border-collapse:collapse;font-size:10px;">
-      <tr><th></th>${headGroup('Band 1 (high protein)')}<th></th>${headGroup('Band 2 (moderate)')}</tr>
+      <tr><th></th>${headGroup(b1label)}<th></th>${headGroup(b2label)}</tr>
       <tr><th style="text-align:left;">Component</th>${headMetrics()}<th></th>${headMetrics()}</tr>
       ${mealRows}
       <tr><td colspan="8" style="padding:4px 0 1px;font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;">Per-component (per choice)</td></tr>
@@ -5521,57 +5529,84 @@ function setSlotMode(meal, comp, mode){
 }
 function toggleSlotMode(meal, comp){ setSlotMode(meal, comp, slotMode(meal, comp) === 'choice' ? 'all' : 'choice'); }
 
-// ── Component nutrient standards (per serve), seeded from Victorian NQFS tables (kJ→kcal ÷4.184) ──
-const COMPONENT_STANDARD_SEEDS = {
-  // Two bands per component (Victorian NQFS): Band 1 = high protein, Band 2 = moderate.
-  // Breakfast sub-components / bread / spread / fruit / beverages have NO per-serve standard —
-  // breakfast is judged on the MEAL total instead (see MEAL_STANDARD_SEEDS).
-  soup:        { band1:{ kcalMin:143, protMin:8,  naMax:600 }, band2:{ kcalMin:96,  protMin:5,  naMax:600 } },
-  main:        { band1:{ kcalMin:167, protMin:20, naMax:600 }, band2:{ kcalMin:167, protMin:15, naMax:600 } },
-  sandwich:    { band1:{ kcalMin:299, protMin:15 },            band2:{ kcalMin:191, protMin:8 } },
-  dessert:     { band1:{ kcalMin:191, protMin:5 },             band2:{ kcalMin:120, protMin:4 } },
-  starch_side: { band1:{ kcalMin:96,  protMin:3 },             band2:{} },
-  veg_side:    { band1:{ kcalMin:60 },                         band2:{} },
-  snack:       { band1:{ kcalMin:120, protMin:5 },             band2:{ kcalMin:120 } },
-  snack_fruit: { band1:{ kcalMin:120, protMin:5 },             band2:{ kcalMin:120 } },
-};
-// Meal-total standards (the whole meal's representative serve). Breakfast is judged here, not per-component.
-const MEAL_STANDARD_SEEDS = {
-  breakfast: { band1:{ kcalMin:400, protMin:15, naMax:900 }, band2:{ kcalMin:300, protMin:10, naMax:900 } },
+// ── Menu nutrient standards — two selectable sources: Victorian NQFS and BDA Digest (3rd ed) ──
+// Band 1 = high protein / nutritionally-vulnerable target; Band 2 = moderate / nutritionally-well.
+// Breakfast (and, for BDA, lunch/dinner "complete meal") are judged on the MEAL total, not per component.
+const STANDARD_PROFILES = {
+  nqfs: {
+    label: 'Victorian NQFS',
+    components: {
+      soup:        { band1:{ kcalMin:143, protMin:8,  naMax:600 }, band2:{ kcalMin:96,  protMin:5,  naMax:600 } },
+      main:        { band1:{ kcalMin:167, protMin:20, naMax:600 }, band2:{ kcalMin:167, protMin:15, naMax:600 } },
+      sandwich:    { band1:{ kcalMin:299, protMin:15 },            band2:{ kcalMin:191, protMin:8 } },
+      dessert:     { band1:{ kcalMin:191, protMin:5 },             band2:{ kcalMin:120, protMin:4 } },
+      starch_side: { band1:{ kcalMin:96,  protMin:3 } },
+      veg_side:    { band1:{ kcalMin:60 } },
+      snack:       { band1:{ kcalMin:120, protMin:5 },             band2:{ kcalMin:120 } },
+      snack_fruit: { band1:{ kcalMin:120, protMin:5 },             band2:{ kcalMin:120 } },
+    },
+    meals: { breakfast: { band1:{ kcalMin:400, protMin:15, naMax:900 }, band2:{ kcalMin:300, protMin:10, naMax:900 } } },
+  },
+  bda: {
+    label: 'BDA Digest (3rd ed)',
+    // Per-component minimums are single targets (Table 10.3). The nutritionally-well vs -vulnerable split
+    // applies to whole meals & day-parts (Tables 10.2 / breakfast / snack) → band2 = well, band1 = vulnerable.
+    components: {
+      soup:        { band1:{ kcalMin:200, protMin:7 } },   // main-meal (fortified) soup
+      main:        { band1:{ kcalMin:300, protMin:10 } },
+      sandwich:    { band1:{ kcalMin:300, protMin:10 } },
+      starch_side: { band1:{ kcalMin:150, protMin:2 } },
+      veg_side:    { band1:{ kcalMin:150, protMin:2 } },
+      snack:       { band1:{ kcalMin:300, protMin:7 }, band2:{ kcalMin:150, protMin:2 } },
+      snack_fruit: { band1:{ kcalMin:300, protMin:7 }, band2:{ kcalMin:150, protMin:2 } },
+      // dessert has no standalone BDA target (counts within the complete-meal total)
+    },
+    meals: {
+      breakfast: { band1:{ kcalMin:545, protMin:18 }, band2:{ kcalMin:400, protMin:10 } },
+      lunch:     { band1:{ kcalMin:800, protMin:27 }, band2:{ kcalMin:500, protMin:15 } },
+      dinner:    { band1:{ kcalMin:800, protMin:27 }, band2:{ kcalMin:500, protMin:15 } },
+    },
+  },
 };
 const CSTD_KEYS = ['kcalMin','protMin','naMax'];
 const CSTD_LABELS = { kcalMin:'kcal ≥', protMin:'Prot ≥ g', naMax:'Na ≤ mg' };
 let _componentStandards = null, _mealStandards = null;
+function standardsProfileId(){ const p = (typeof nsSettings!=='undefined' && nsSettings) ? nsSettings.standardsProfile : null; return STANDARD_PROFILES[p] ? p : 'nqfs'; }
+function setStandardsProfile(id){
+  if (!STANDARD_PROFILES[id]) return;
+  nsSettings.standardsProfile = id; persistSettings();
+  _componentStandards = null; _mealStandards = null;
+  renderMealLog(); renderPlanGrid();
+}
+function _savedStd(key){ try { return (JSON.parse(localStorage.getItem(key)) || {})[standardsProfileId()] || {}; } catch(e){ return {}; } }
 function componentStandards(){
   if (_componentStandards) return _componentStandards;
-  let saved = {};
-  try { saved = JSON.parse(localStorage.getItem('ns_component_standards')) || {}; } catch(e){}
-  // Drop any legacy single-band saved entries (pre-v29) so the new two-band seeds apply
-  Object.keys(saved).forEach(k => { const v = saved[k]; if (!v || (!v.band1 && !v.band2)) delete saved[k]; });
-  _componentStandards = Object.assign({}, JSON.parse(JSON.stringify(COMPONENT_STANDARD_SEEDS)), saved);
+  const saved = _savedStd('ns_component_standards');
+  Object.keys(saved).forEach(k => { const v = saved[k]; if (!v || (!v.band1 && !v.band2)) delete saved[k]; });  // drop legacy flat entries
+  _componentStandards = Object.assign({}, JSON.parse(JSON.stringify(STANDARD_PROFILES[standardsProfileId()].components)), saved);
   return _componentStandards;
 }
 function mealStandards(){
   if (_mealStandards) return _mealStandards;
-  let saved = {};
-  try { saved = JSON.parse(localStorage.getItem('ns_meal_standards')) || {}; } catch(e){}
-  _mealStandards = Object.assign({}, JSON.parse(JSON.stringify(MEAL_STANDARD_SEEDS)), saved);
+  const saved = _savedStd('ns_meal_standards');
+  _mealStandards = Object.assign({}, JSON.parse(JSON.stringify(STANDARD_PROFILES[standardsProfileId()].meals)), saved);
   return _mealStandards;
 }
-function saveComponentStandards(){ try { localStorage.setItem('ns_component_standards', JSON.stringify(_componentStandards||{})); } catch(e){} }
-function saveMealStandards(){ try { localStorage.setItem('ns_meal_standards', JSON.stringify(_mealStandards||{})); } catch(e){} }
 function updateBandStd(scope, key, band, metric, value){
-  const store = scope === 'meal' ? mealStandards() : componentStandards();
-  store[key] = store[key] || {}; store[key][band] = store[key][band] || {};
+  const lsKey = scope === 'meal' ? 'ns_meal_standards' : 'ns_component_standards';
+  let all = {}; try { all = JSON.parse(localStorage.getItem(lsKey)) || {}; } catch(e){}
+  const prof = standardsProfileId();
+  all[prof] = (scope === 'meal' ? mealStandards() : componentStandards());   // start from the effective (seed+saved) set
+  all[prof][key] = all[prof][key] || {}; all[prof][key][band] = all[prof][key][band] || {};
   const v = parseFloat(value);
-  if (isNaN(v)) delete store[key][band][metric]; else store[key][band][metric] = v;
-  if (scope === 'meal') saveMealStandards(); else saveComponentStandards();
+  if (isNaN(v)) delete all[prof][key][band][metric]; else all[prof][key][band][metric] = v;
+  try { localStorage.setItem(lsKey, JSON.stringify(all)); } catch(e){}
+  _componentStandards = null; _mealStandards = null;
   renderMealLog(); renderPlanGrid();
 }
 
-// Does a serve's totals meet a single band's mins/maxes? (empty band = always meets)
 function meetsBand(t, band){
-  if (!band) return false;
+  if (!band || !Object.keys(band).length) return false;   // an empty band is not a satisfiable tier
   if (band.kcalMin != null && t.kcal < band.kcalMin) return false;
   if (band.protMin != null && t.prot < band.protMin) return false;
   if (band.naMax  != null && t.na  > band.naMax)  return false;
@@ -5581,23 +5616,26 @@ function bandNote(band){
   if (!band) return '';
   return [band.kcalMin?'≥'+band.kcalMin+' kcal':'', band.protMin?'≥'+band.protMin+' g P':'', band.naMax?'≤'+band.naMax+' mg Na':''].filter(Boolean).join(', ');
 }
-// Evaluate items against a two-band standard → { band:'band1'|'band2'|'fail', t } or null if no standard.
+function _hasBand(b){ return b && Object.keys(b).length > 0; }
+// Evaluate items against a one- or two-band standard → { band:'band1'|'band2'|'fail', t } or null if no standard.
 function bandStatusFor(items, std){
   if (!std || !items || !items.length) return null;
-  const hasAny = (std.band1 && Object.keys(std.band1).length) || (std.band2 && Object.keys(std.band2).length);
-  if (!hasAny) return null;
+  const b1 = _hasBand(std.band1), b2 = _hasBand(std.band2);
+  if (!b1 && !b2) return null;
   const t = computeTotals(items);
-  const band = meetsBand(t, std.band1) ? 'band1' : meetsBand(t, std.band2) ? 'band2' : 'fail';
+  const band = (b1 && meetsBand(t, std.band1)) ? 'band1' : (b2 && meetsBand(t, std.band2)) ? 'band2' : 'fail';
   return { band, t };
 }
 function componentStatusFor(items, comp){ return bandStatusFor(items, componentStandards()[comp]); }
 function bandChipHTML(items, std){
   const s = bandStatusFor(items, std);
   if (!s) return '';
-  const info = s.band === 'band1' ? ['ok','B1', 'Meets Band 1 (high protein) — '+bandNote(std.band1)]
-             : s.band === 'band2' ? ['b2','B2', 'Meets Band 2 (moderate) — '+bandNote(std.band2)]
-             : ['off','✗', 'Below standard — needs '+bandNote(std.band2 && Object.keys(std.band2).length ? std.band2 : std.band1)];
-  return `<span class="comp-chip ${info[0]}" style="font-size:8.5px;padding:1px 6px;margin-left:6px;" title="${info[2]} (${Math.round(s.t.kcal)} kcal, ${s.t.prot.toFixed(1)} g P)">${info[1]}</span>`;
+  const twoBand = _hasBand(std.band1) && _hasBand(std.band2);
+  let cls, mark, tip;
+  if (s.band === 'fail')        { cls='off'; mark='✗'; tip='Below standard — needs ' + bandNote(_hasBand(std.band2)?std.band2:std.band1); }
+  else if (s.band === 'band1')  { cls='ok';  mark=twoBand?'B1':'✓'; tip=(twoBand?'Meets Band 1 (high protein) — ':'Meets standard — ') + bandNote(std.band1); }
+  else                          { cls='b2';  mark='B2'; tip='Meets Band 2 (moderate) — ' + bandNote(std.band2); }
+  return `<span class="comp-chip ${cls}" style="font-size:8.5px;padding:1px 6px;margin-left:6px;" title="${tip} (${Math.round(s.t.kcal)} kcal, ${s.t.prot.toFixed(1)} g P)">${mark}</span>`;
 }
 function compChipHTML(items, comp){ return bandChipHTML(items, componentStandards()[comp]); }
 
