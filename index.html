@@ -1044,6 +1044,26 @@
     border-radius: 10px; padding: 1px 7px; cursor: pointer; min-height: 0; white-space: nowrap;
   }
   .slot-mode:hover { border-color: var(--accent); color: var(--accent); }
+  /* ── Recipe review rows (import matching) ── */
+  .review-wrap { margin: 4px 0 10px; padding: 10px 12px; border: 1px solid var(--border); border-radius: 10px; background: var(--surface); }
+  .rr-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: 4px; gap: 8px; }
+  .rr-legend { font-size: 10px; color: var(--text3); margin-bottom: 8px; line-height: 1.4; }
+  .review-row { padding: 8px 0; border-bottom: 1px solid var(--border); }
+  .rr-top { display: flex; align-items: center; gap: 7px; margin-bottom: 5px; }
+  .rr-dot { width: 9px; height: 9px; border-radius: 50%; flex: none; }
+  .rr-ing { font-size: 13px; font-weight: 600; color: var(--text); flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .rr-qty { font-family: var(--font-num); font-size: 10.5px; color: var(--text3); white-space: nowrap; }
+  .rr-learned { font-size: 8.5px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.4px; color: var(--accent); background: var(--accent-light); padding: 1px 6px; border-radius: 8px; }
+  .rr-bot { display: flex; align-items: center; gap: 7px; padding-left: 16px; flex-wrap: wrap; }
+  .rr-lbl { font-size: 9px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.4px; color: var(--text3); flex: none; }
+  .rr-select { font-size: 11.5px; padding: 5px 7px; flex: 1; min-width: 160px; }
+  .rr-gwrap { display: inline-flex; align-items: center; gap: 3px; flex: none; }
+  .rr-g { width: 66px; font-size: 11.5px; padding: 5px; text-align: right; font-family: var(--font-num); }
+  .rr-gu { font-size: 10px; color: var(--text3); }
+  .rr-kcal { font-family: var(--font-num); font-size: 10.5px; color: var(--accent); min-width: 52px; text-align: right; flex: none; }
+  .rr-note { font-size: 9px; color: var(--text3); padding-left: 16px; margin-top: 3px; }
+  .rr-collapsed { font-size: 11px; color: var(--text2); padding: 8px 0 2px; cursor: pointer; }
+  .rr-link { color: var(--accent); font-weight: 600; }
   .slot-empty { font-size: 10px; color: var(--text3); font-style: italic; padding: 4px 12px; cursor: pointer; border-bottom: 1px solid var(--border); }
   .slot-empty:hover { background: var(--surface2); }
   /* Menu-template grid (cycle): meal · component row labels */
@@ -6350,8 +6370,60 @@ function _sing(t){
   if (/s$/.test(t) && !/ss$/.test(t)) return t.slice(0,-1);
   return t;
 }
+// ── Learned matches: every correction she makes is remembered (phrase → chosen food) ──
+let learnedMatches = null;
+function loadLearnedMatches(){
+  if (learnedMatches) return learnedMatches;
+  try { learnedMatches = JSON.parse(localStorage.getItem('ns_ingredient_learned')) || {}; }
+  catch(e){ learnedMatches = {}; }
+  return learnedMatches;
+}
+function learnMatch(normKey, food){
+  if (!normKey || !food || food._unmatched) return;
+  loadLearnedMatches();
+  learnedMatches[normKey] = { db: food.db, code: food.code, name: food.name };
+  try { localStorage.setItem('ns_ingredient_learned', JSON.stringify(learnedMatches)); } catch(e){}
+}
+function resolveLearned(normKey){
+  const m = loadLearnedMatches()[normKey];
+  if (!m) return null;
+  let food = null;
+  if (m.code) food = foodIndex().get(m.db + ':' + m.code) || customFoods.find(x => x.code === m.code) || null;
+  if (!food) food = [].concat(IFCT,AFCD,AUSNUT,customFoods).find(f => f.name === m.name) || null;
+  return food;
+}
+
+// ── Staple overrides: cooking staples that must never lose to a lookalike (butter → butter bean) ──
+const STAPLE_MAP = [
+  { any:['butter'], not:['peanut','nut','bean','butternut','buttermilk','shea','cocoa','body','apple','pastry','cookie','cake','biscuit','garlic'], name:'Butter' },
+  { any:['milk'],   not:['powder','buttermilk','soy','soya','almond','oat','coconut','condensed','evaporated','breast','rice'], name:'Milk, cow, full fat, raw' },
+  { any:['egg','eggs'], not:['plant','substitute','noodle','eggplant'], name:'Egg, whole, raw' },
+  { any:['flour'],  not:['corn','rice','almond','coconut','chickpea','gram','maize','potato'], name:'Flour, wheat, white, plain' },
+  { any:['sugar'],  not:['free','snap','snow'], name:'Sugar, white (sucrose)' },
+  { any:['salt'],   not:['substitute','celery','garlic','unsalted'], name:'Salt, table, iodised' },
+];
+let _stapleIndex = null;
+function stapleFood(name){
+  if (!_stapleIndex) { _stapleIndex = new Map(); [].concat(IFCT,AFCD,AUSNUT).forEach(f => { if (f && f.name && !_stapleIndex.has(f.name)) _stapleIndex.set(f.name, f); }); }
+  return _stapleIndex.get(name) || null;
+}
+function stapleOverride(tokens){
+  const sing = tokens.map(_sing);   // "beans" → "bean", "eggs" → "egg"
+  const has = w => tokens.includes(w) || sing.includes(_sing(w));
+  for (const s of STAPLE_MAP) {
+    if (s.any.some(has) && !s.not.some(has)) {
+      const f = stapleFood(s.name); if (f) return f;
+    }
+  }
+  return null;
+}
+
 function matchIngredientScored(rawName){
-  let q=_normIng(rawName);
+  const normKey = _normIng(rawName);
+  // 1) learned correction wins outright
+  const learned = resolveLearned(normKey);
+  if (learned) return { list: [learned], conf: 1, learned: true };
+  let q = normKey;
   if(ING_SYNONYMS[q]) q=_normIng(ING_SYNONYMS[q]);
   const qt=q.split(' ').filter(Boolean); if(!qt.length) return {list:[], conf:0};
   const qCooked = _STATE_COOKED.test(q), qRaw = /\braw\b/.test(q);
@@ -6379,10 +6451,16 @@ function matchIngredientScored(rawName){
     scored.push({f,score});
   }
   scored.sort((a,b)=>b.score-a.score);
-  const top = scored.slice(0,8);
+  let top = scored.slice(0,8).map(x=>x.f);
   const nonStop = qt.filter(t=>!_STOP.has(t)).length || 1;
-  const conf = top.length ? Math.min(1, top[0].score / (5*nonStop + 10)) : 0;
-  return { list: top.map(x=>x.f), conf };
+  let conf = top.length ? Math.min(1, scored[0].score / (5*nonStop + 10)) : 0;
+  // 2) staple override: force the obvious food to the top (butter, milk, egg, flour, sugar, salt)
+  const staple = stapleOverride(qt);
+  if (staple) {
+    top = [staple].concat(top.filter(f => f.name !== staple.name)).slice(0,8);
+    conf = Math.max(conf, 0.85);
+  }
+  return { list: top, conf };
 }
 
 // Parse the free-text recipe box → pending review items with confidence chips.
@@ -6402,6 +6480,7 @@ function parseRecipeFromText(){
     else if (line.gramsNote && line.gramsNote.startsWith('weight from')) exact = true;
     return {
       raw: { name: line.raw.length > 48 ? line.raw.slice(0,48)+'…' : line.raw, qty: line.qty, uom: line.unit || '' },
+      normKey: _normIng(line.name),
       candidates: m.list, food,
       grams: grams || 0,
       conv: { exact, note: note || '' },
@@ -6456,6 +6535,9 @@ function changePendingMatch(i,ci){
   const c=it.candidates[parseInt(ci)];
   if(c){
     it.food=c;
+    it.conf = 1; it._corrected = true;   // she chose it → treat as confident
+    // remember this correction so the same ingredient auto-matches next time (any recipe)
+    if (it.normKey) learnMatch(it.normKey, c);
     // "2 slices", "3 eggs" etc: gram weight depends on the chosen food's measures
     if(it.countInfo){
       const cu=resolveCountUnit(c, it.countInfo.qty, it.countInfo.unit);
@@ -6487,47 +6569,76 @@ function commitPending(){
   showToast('Added '+added+' ingredient'+(added!==1?'s':'')+(skipped?(' \u00b7 '+skipped+' unmatched skipped'):''));
 }
 
+let reviewShowAll = false;
+function toggleReviewAll(){ reviewShowAll = !reviewShowAll; renderReviewPanel(); }
+
+// A match is "confident" (auto-accepted, hidden by default) when it's matched, high-conf, and grams are exact.
+function _pendConfident(item){
+  return item.food && !item.food._unmatched && item.conf != null && item.conf >= 0.75 && item.conv && item.conv.exact;
+}
+
+function reviewRowHTML(item, i){
+  const cands = item.candidates && item.candidates.length ? item.candidates : [];
+  const opts = cands.map((c,ci)=>'<option value="'+ci+'" '+(c===item.food?'selected':'')+'>'+c.name+' \u00b7 '+c.db.toUpperCase()+' \u00b7 '+Math.round(c.kcal)+' kcal/100g</option>').join('');
+  const unmatched = !!item.food._unmatched;
+  const lowConf = !unmatched && item.conf!=null && item.conf<0.4;
+  const midConf = !unmatched && item.conf!=null && item.conf>=0.4 && item.conf<0.75;
+  const amber = !unmatched && ((item.conv && !item.conv.exact) || midConf);
+  const dot = (unmatched||lowConf) ? '#ef4444' : (amber ? '#f59e0b' : '#10b981');
+  const confPct = item.conf!=null ? Math.round(item.conf*100)+'%' : '';
+  const tip = unmatched ? 'No match \u2014 pick from the list' : (item.learned||item._corrected ? 'Learned from your past choice' : (lowConf ? 'Weak match ('+confPct+') \u2014 check it' : (amber ? (midConf?'Possible match ('+confPct+') \u2014 check it':'Unit assumed \u2014 check grams') : 'Confident match'+(confPct?' \u00b7 '+confPct:''))));
+  const learnedTag = (item.learned||item._corrected) ? '<span class="rr-learned" title="Remembered from a correction you made">learned</span>' : '';
+  return '<div class="review-row">'
+    +'<div class="rr-top">'
+      +'<span class="rr-dot" style="background:'+dot+';" title="'+tip+'"></span>'
+      +'<span class="rr-ing">'+item.raw.name+'</span>'
+      +'<span class="rr-qty">'+item.raw.qty+' '+item.raw.uom+'</span>'
+      +learnedTag
+      +'<button class="log-del" onclick="removePending('+i+')">\u00d7</button>'
+    +'</div>'
+    +'<div class="rr-bot">'
+      +'<label class="rr-lbl">matched to</label>'
+      +'<select class="field-input rr-select" onchange="changePendingMatch('+i+',this.value)">'
+        +(unmatched?'<option selected>\u2014 no match, pick one \u2014</option>':'')+opts
+      +'</select>'
+      +'<span class="rr-gwrap"><input class="field-input rr-g" type="number" value="'+item.grams+'" step="0.1" onchange="changePendingQty('+i+',this.value)"><span class="rr-gu">g</span></span>'
+      +'<span class="rr-kcal">'+Math.round((item.food.kcal||0)*item.grams/100)+' kcal</span>'
+    +'</div>'
+    +((item.conv&&item.conv.note)?'<div class="rr-note">'+item.conv.note+'</div>':'')
+  +'</div>';
+}
+
 function renderReviewPanel(){
   const el=document.getElementById('recipeReviewPanel'); if(!el) return;
-  if(!pendingIngredients.length){ el.innerHTML=''; el.style.display='none'; return; }
+  if(!pendingIngredients.length){ el.innerHTML=''; el.style.display='none'; reviewShowAll=false; return; }
   el.style.display='block';
-  const rows=pendingIngredients.map((item,i)=>{
-    const cands=item.candidates&&item.candidates.length?item.candidates:[];
-    const opts=cands.map((c,ci)=>'<option value="'+ci+'" '+(c===item.food?'selected':'')+'>'+c.name+' \u00b7 '+c.db.toUpperCase()+' \u00b7 '+Math.round(c.kcal)+'kcal/100g</option>').join('');
-    const unmatched=!!item.food._unmatched;
-    const lowConf=!unmatched && item.conf!=null && item.conf<0.4;
-    const midConf=!unmatched && item.conf!=null && item.conf>=0.4 && item.conf<0.75;
-    const amber=!unmatched && ((item.conv && !item.conv.exact) || midConf);
-    const dot=(unmatched||lowConf)?'#ef4444':(amber?'#f59e0b':'#10b981');
-    const confPct=item.conf!=null?Math.round(item.conf*100)+'% match':'';
-    const tip=unmatched?'No match \u2014 pick from list':(lowConf?'Weak match ('+confPct+') \u2014 verify':(amber?(midConf?'Possible match ('+confPct+') \u2014 verify':'Unit assumed \u2014 check grams'):'Matched'+(confPct?' \u00b7 '+confPct:'')));
-    return '<div style="display:flex;flex-wrap:wrap;align-items:center;gap:6px;padding:7px 0;border-bottom:1px solid var(--border);">'
-      +'<div style="display:flex;align-items:center;gap:6px;width:100%;">'
-        +'<span style="width:8px;height:8px;border-radius:50%;background:'+dot+';flex:none;" title="'+tip+'"></span>'
-        +'<span style="font-size:11px;color:var(--text2);flex:1;">'+item.raw.name+' \u00b7 '+item.raw.qty+' '+item.raw.uom+'</span>'
-        +'<button class="log-del" onclick="removePending('+i+')">\u00d7</button>'
-      +'</div>'
-      +'<select class="field-input" style="font-size:11px;padding:5px;flex:1;min-width:150px;" onchange="changePendingMatch('+i+',this.value)">'
-        +(unmatched?'<option selected>\u2014 no match \u2014</option>':'')+opts
-      +'</select>'
-      +'<div style="display:flex;align-items:center;gap:4px;">'
-        +'<input class="field-input" type="number" value="'+item.grams+'" step="0.1" style="width:68px;font-size:11px;padding:5px;" onchange="changePendingQty('+i+',this.value)">'
-        +'<span style="font-size:10px;color:var(--text3);">g</span>'
-        +'<span class="log-item-kcal" style="font-size:10px;min-width:48px;text-align:right;">'+Math.round((item.food.kcal||0)*item.grams/100)+'kcal</span>'
-      +'</div>'
-      +((item.conv&&item.conv.note)?'<div style="font-size:9px;color:var(--text3);width:100%;padding-left:14px;">'+item.conv.note+'</div>':'')
-    +'</div>';
-  }).join('');
-  el.innerHTML='<div style="margin:4px 0 10px;padding:10px;border:1px solid var(--border);border-radius:8px;background:var(--bg2);">'
-    +'<div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:4px;">'
-      +'<div class="field-label">Review auto-matches ('+pendingIngredients.length+')</div>'
+  const indexed = pendingIngredients.map((it,i)=>({it,i}));
+  const confident = indexed.filter(x=>_pendConfident(x.it));
+  const needs = indexed.filter(x=>!_pendConfident(x.it));
+  const shown = reviewShowAll ? indexed : needs;
+  const rows = shown.map(x=>reviewRowHTML(x.it, x.i)).join('');
+
+  let collapsedNote = '';
+  if (confident.length && !reviewShowAll) {
+    collapsedNote = '<div class="rr-collapsed" onclick="toggleReviewAll()">\u2713 '+confident.length+' matched confidently \u2014 <span class="rr-link">show all</span></div>';
+  } else if (reviewShowAll && confident.length) {
+    collapsedNote = '<div class="rr-collapsed" onclick="toggleReviewAll()"><span class="rr-link">hide the '+confident.length+' confident matches</span></div>';
+  }
+  const headline = needs.length
+    ? needs.length+' need'+(needs.length===1?'s':'')+' a look'
+    : 'all '+pendingIngredients.length+' matched';
+
+  el.innerHTML='<div class="review-wrap">'
+    +'<div class="rr-head">'
+      +'<div class="field-label" style="margin:0;">Review matches \u00b7 <span style="color:var(--text3);font-weight:400;">'+headline+'</span></div>'
       +'<div style="display:flex;gap:6px;">'
         +'<button class="btn-secondary" style="font-size:11px;padding:5px 9px;" onclick="cancelPending()">Cancel</button>'
         +'<button class="btn-primary" style="font-size:11px;padding:5px 9px;" onclick="commitPending()">Add all to recipe \u2192</button>'
       +'</div>'
     +'</div>'
-    +'<div style="font-size:10px;color:var(--text3);margin-bottom:4px;">\u{1F7E2} matched \u00b7 \u{1F7E1} unit assumed, check grams \u00b7 \u{1F534} no match, pick one</div>'
-    +rows+'</div>';
+    +'<div class="rr-legend">\u{1F7E2} confident \u00b7 \u{1F7E1} check it \u00b7 \u{1F534} no match \u2014 correct one and Kaana remembers it next time</div>'
+    +(needs.length?rows+collapsedNote:collapsedNote+rows)
+  +'</div>';
 }
 
 
@@ -7769,7 +7880,7 @@ function nsSave(key, obj) {
   catch(e) { showToast('Storage full — export a backup, then delete old plans or recipes'); return false; }
 }
 
-const NS_BACKUP_KEYS = ['ns_custom_foods','ns_recipes','ns_user_measures','ns_plans','ns_settings','ns_seeded_codes','ns_diet_codes','ns_cycles','ns_records'];
+const NS_BACKUP_KEYS = ['ns_custom_foods','ns_recipes','ns_user_measures','ns_plans','ns_settings','ns_seeded_codes','ns_diet_codes','ns_cycles','ns_records','ns_ingredient_learned'];
 
 async function backupExport() {
   const data = {};
