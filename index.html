@@ -968,6 +968,8 @@
     font-size: 38px; background: linear-gradient(135deg, var(--surface2), var(--accent-light));
   }
   .lib-photo img { width: 100%; height: 100%; object-fit: cover; }
+  .editor-photo { width: 46px; height: 46px; border-radius: 9px; overflow: hidden; background: var(--surface2); display: inline-block; flex: none; }
+  .editor-photo img { width: 100%; height: 100%; object-fit: cover; }
   .lib-body { padding: 9px 11px 11px; display: flex; flex-direction: column; gap: 5px; flex: 1; }
   .lib-name { font-size: 12.5px; font-weight: 600; color: var(--text); line-height: 1.3;
     display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
@@ -1275,7 +1277,11 @@
         <div class="recipe-meta">
           <div class="field-group" style="margin-bottom:8px;">
             <div class="field-label">Recipe Name</div>
-            <input class="field-input" id="recipeName" type="text" placeholder="e.g. Fish curry with rice">
+            <div style="display:flex;gap:8px;align-items:flex-start;">
+              <input class="field-input" id="recipeName" type="text" placeholder="e.g. Fish curry with rice" style="flex:1;">
+              <div id="recipePhotoBox" style="display:flex;gap:6px;align-items:center;"></div>
+              <input type="file" id="recipePhotoInput" accept="image/*" style="display:none" onchange="editorPhotoUpload(this)">
+            </div>
           </div>
           <div class="field-row">
             <div class="field-group">
@@ -5832,6 +5838,8 @@ function clearRecipe() {
   ['recipeName','recipeServingSize','recipeFinishedWeight','recipeMethod','recipeNotes'].forEach(id => { const e=document.getElementById(id); if(e) e.value=''; });
   const sv=document.getElementById('recipeServings'); if(sv) sv.value=1;
   editorTags = blankTags();
+  editorPhotoId = null;
+  renderEditorPhoto();
   renderRecipeTagChips();
   renderRecipeItems();
 }
@@ -5976,7 +5984,7 @@ function saveRecipe() {
     tags: editorTags ? JSON.parse(JSON.stringify(editorTags)) : (prev && prev.tags) || blankTags(),
     tagsVerified: prev && JSON.stringify(prev.tags||{}) === JSON.stringify(editorTags||prev.tags||{}) ? !!prev.tagsVerified : false,
     itemsVerified: true,
-    photoId: prev ? prev.photoId || null : null,
+    photoId: editorPhotoId || null,
     source: prev ? prev.source || 'user' : 'user',
     created: prev && prev.created || new Date().toISOString(),
     modified: new Date().toISOString(),
@@ -6005,6 +6013,8 @@ function loadRecipe(id) {
   const mEl = document.getElementById('recipeMethod'); if (mEl) mEl.value = (rec.method||[]).join('\n');
   const nEl = document.getElementById('recipeNotes');  if (nEl) nEl.value = rec.notes || '';
   editorTags = JSON.parse(JSON.stringify(rec.tags || blankTags()));
+  editorPhotoId = rec.photoId || null;
+  renderEditorPhoto();
   renderRecipeTagChips();
   renderRecipeItems();
   showToast(`Loaded: ${rec.name}`);
@@ -6163,6 +6173,106 @@ const DIET_CODE_SEEDS = [
 ];
 
 // ════════════════════════════════════════════════
+// PHOTOS — IndexedDB store + client-side compression
+// localStorage would blow the ~5MB quota; photos live in IDB as small JPEG blobs.
+// ════════════════════════════════════════════════
+const kaanaDB = (() => {
+  let dbp = null;
+  function open(){
+    if (!dbp) dbp = new Promise((res, rej) => {
+      const rq = indexedDB.open('kaana', 1);
+      rq.onupgradeneeded = () => rq.result.createObjectStore('photos', { keyPath: 'id' });
+      rq.onsuccess = () => res(rq.result);
+      rq.onerror = () => rej(rq.error);
+    });
+    return dbp;
+  }
+  const req = (mode, fn) => open().then(db => new Promise((res, rej) => {
+    const rq = fn(db.transaction('photos', mode).objectStore('photos'));
+    rq.onsuccess = () => res(rq.result);
+    rq.onerror = () => rej(rq.error);
+  }));
+  return {
+    put: rec => req('readwrite', s => s.put(rec)),
+    get: id  => req('readonly',  s => s.get(id)).then(r => r || null),
+    del: id  => req('readwrite', s => s.delete(id)),
+    all: ()  => req('readonly',  s => s.getAll()).then(r => r || []),
+  };
+})();
+
+// Downscale + recompress to ≤ ~45KB JPEG (max edge 400px, quality steps down)
+async function compressPhoto(file){
+  const url = URL.createObjectURL(file);
+  try {
+    const img = await new Promise((res, rej) => { const i = new Image(); i.onload = () => res(i); i.onerror = () => rej(new Error('That image could not be read')); i.src = url; });
+    const scale = Math.min(1, 400 / Math.max(img.width, img.height));
+    const c = document.createElement('canvas');
+    c.width = Math.max(1, Math.round(img.width * scale));
+    c.height = Math.max(1, Math.round(img.height * scale));
+    c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+    let q = 0.72, blob = null;
+    do {
+      blob = await new Promise(r => c.toBlob(r, 'image/jpeg', q));
+      q -= 0.12;
+    } while (blob && blob.size > 45000 && q > 0.2);
+    if (!blob) throw new Error('Compression failed');
+    return { blob, w: c.width, h: c.height, bytes: blob.size };
+  } finally { URL.revokeObjectURL(url); }
+}
+
+const _photoURLs = new Map();
+async function photoURL(id){
+  if (!id) return null;
+  if (_photoURLs.has(id)) return _photoURLs.get(id);
+  const rec = await kaanaDB.get(id).catch(() => null);
+  if (!rec || !rec.blob) return null;
+  const u = URL.createObjectURL(rec.blob);
+  _photoURLs.set(id, u);
+  return u;
+}
+
+// hydrate any [data-photo] placeholders after a render
+function hydratePhotos(container){
+  (container || document).querySelectorAll('[data-photo]').forEach(el => {
+    const id = el.dataset.photo;
+    photoURL(id).then(u => { if (u) el.innerHTML = `<img src="${u}" alt="">`; });
+  });
+}
+
+let editorPhotoId = null;
+
+async function editorPhotoUpload(input){
+  const file = input.files && input.files[0];
+  input.value = '';
+  if (!file) return;
+  try {
+    const { blob, w, h, bytes } = await compressPhoto(file);
+    const id = 'ph_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+    await kaanaDB.put({ id, blob, w, h, bytes, created: new Date().toISOString() });
+    editorPhotoId = id;
+    renderEditorPhoto();
+    showToast('Photo added (' + Math.round(bytes / 1024) + ' KB) — save the recipe to keep it');
+  } catch (e) { showToast(e.message || 'Could not process that photo'); }
+}
+
+function editorPhotoRemove(){
+  editorPhotoId = null;
+  renderEditorPhoto();
+}
+
+function renderEditorPhoto(){
+  const el = document.getElementById('recipePhotoBox'); if (!el) return;
+  if (!editorPhotoId) {
+    el.innerHTML = `<button class="btn-secondary" style="font-size:11px;" onclick="document.getElementById('recipePhotoInput').click()">📷 Add photo</button>`;
+    return;
+  }
+  el.innerHTML = `<span class="editor-photo" data-photo="${editorPhotoId}"></span>
+    <button class="btn-secondary" style="font-size:11px;" onclick="document.getElementById('recipePhotoInput').click()">Replace</button>
+    <button class="btn-secondary" style="font-size:11px;color:var(--red,#c0392b);" onclick="editorPhotoRemove()">Remove</button>`;
+  hydratePhotos(el);
+}
+
+// ════════════════════════════════════════════════
 // RECIPE LIBRARY VIEW
 // ════════════════════════════════════════════════
 const CUISINE_EMOJI = { 'maldivian':'🐟', 'south-asian':'🍛', 'western':'🥗', 'east-asian':'🍜' };
@@ -6212,7 +6322,7 @@ function renderLibrary(){
     const allergenNote = r.tags.allergens.length
       ? `<span class="lib-allergens" title="Contains: ${r.tags.allergens.join(', ')}">⚠ ${r.tags.allergens.length} allergen${r.tags.allergens.length>1?'s':''}</span>` : '';
     return `<div class="lib-card">
-      <div class="lib-photo">${emoji}</div>
+      <div class="lib-photo" ${r.photoId ? `data-photo="${r.photoId}"` : ''}>${emoji}</div>
       <div class="lib-body">
         <div class="lib-name" title="${(r.name||'').replace(/"/g,'&quot;')}">${r.name}</div>
         <div class="lib-stats">${Math.round(ps.kcal||0)} kcal · ${(ps.prot||0).toFixed(1)}g prot / serve · serves ${r.servings||1}</div>
@@ -6226,6 +6336,7 @@ function renderLibrary(){
       </div>
     </div>`;
   }).join('') + `</div>`;
+  hydratePhotos(el);
 }
 
 // ── Add-to-plan modal ──
@@ -6579,18 +6690,31 @@ function nsSave(key, obj) {
 
 const NS_BACKUP_KEYS = ['ns_custom_foods','ns_recipes','ns_user_measures','ns_plans','ns_settings','ns_seeded_codes','ns_diet_codes','ns_cycles','ns_records'];
 
-function backupExport() {
+async function backupExport() {
   const data = {};
   NS_BACKUP_KEYS.forEach(k => {
     try { const s = localStorage.getItem(k); if (s != null) data[k] = JSON.parse(s); } catch(e){}
   });
-  const payload = { app:'kaana', schemaVersion:1, exported:new Date().toISOString(), data };
-  const blob = new Blob([JSON.stringify(payload, null, 2)], {type:'application/json'});
+  const payload = { app:'kaana', schemaVersion:2, exported:new Date().toISOString(), data };
+  // include photos (base64) when the IDB store has any
+  try {
+    const photos = await kaanaDB.all();
+    if (photos.length) {
+      payload.photos = await Promise.all(photos.map(p => new Promise(res => {
+        const fr = new FileReader();
+        fr.onload = () => res({ id: p.id, mime: 'image/jpeg', b64: String(fr.result).split(',')[1], w: p.w, h: p.h });
+        fr.onerror = () => res(null);
+        fr.readAsDataURL(p.blob);
+      })));
+      payload.photos = payload.photos.filter(Boolean);
+    }
+  } catch(e){}
+  const blob = new Blob([JSON.stringify(payload)], {type:'application/json'});
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = `nutrisearch-backup-${new Date().toISOString().slice(0,10)}.json`;
+  a.download = `kaana-backup-${new Date().toISOString().slice(0,10)}.json`;
   a.click(); URL.revokeObjectURL(a.href);
-  showToast('Backup downloaded');
+  showToast('Backup downloaded' + (payload.photos ? ` (incl. ${payload.photos.length} photos)` : ''));
 }
 
 function backupImport(input) {
@@ -6600,6 +6724,17 @@ function backupImport(input) {
     let payload;
     try { payload = JSON.parse(e.target.result); } catch(err){ showToast('Invalid backup file'); return; }
     if (!payload || !['kaana','nutrisearch'].includes(payload.app) || !payload.data) { showToast('Not a Kaana backup file'); return; }
+    // restore photos into IndexedDB (before the reload below)
+    if (Array.isArray(payload.photos)) {
+      payload.photos.forEach(p => {
+        try {
+          const bin = atob(p.b64);
+          const arr = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+          kaanaDB.put({ id: p.id, blob: new Blob([arr], { type: p.mime || 'image/jpeg' }), w: p.w, h: p.h, bytes: arr.length, created: new Date().toISOString() });
+        } catch(e){}
+      });
+    }
     const replace = confirm('Restore backup?\n\nOK = REPLACE current data with the backup.\nCancel = MERGE backup into current data (keeps both).');
     NS_BACKUP_KEYS.forEach(k => {
       if (!(k in payload.data)) return;
@@ -6649,6 +6784,9 @@ window.addEventListener('load', () => {
   renderLibFilters();
   renderLibrary();
   renderRecipeTagChips();
+  renderEditorPhoto();
+  // ask the browser not to evict our photo store under storage pressure
+  if (navigator.storage && navigator.storage.persist) navigator.storage.persist().catch(()=>{});
   // PWA: register service worker on https only (skips file:// and local dev)
   if (location.protocol === 'https:' && 'serviceWorker' in navigator) {
     navigator.serviceWorker.register('sw.js').catch(()=>{});
