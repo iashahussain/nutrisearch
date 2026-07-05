@@ -992,6 +992,12 @@
     display: flex; align-items: center; gap: 9px; padding: 7px 6px; border-radius: 9px; cursor: pointer;
   }
   .swap-row:hover { background: var(--surface2); }
+  .frac-chips { display: inline-flex; gap: 2px; margin-left: 6px; vertical-align: middle; }
+  .frac-chips button {
+    font-size: 8.5px; padding: 1px 5px; border: 1px solid var(--border); background: var(--surface);
+    color: var(--text3); border-radius: 7px; cursor: pointer; min-height: 0;
+  }
+  .frac-chips button:hover { border-color: var(--accent2); color: var(--accent); }
   /* The planner tab scrolls as ONE column — grid, editor and meal list share the
      scroll instead of fighting for fixed heights (fixed sections crushed the list). */
   #tab-log { overflow-y: auto; overflow-x: hidden; display: block; }
@@ -1079,7 +1085,7 @@
   <!-- SIDE NAV -->
   <nav class="side-nav" id="sideNav">
     <button class="nav-item active" data-view="planner" onclick="switchView('planner')"><span class="nav-icon">📅</span><span class="nav-label">Meal Planner</span></button>
-    <button class="nav-item" data-view="record" onclick="switchView('record')" disabled title="Coming soon"><span class="nav-icon">📋</span><span class="nav-label">Food Record</span></button>
+    <button class="nav-item" data-view="record" onclick="switchView('record')"><span class="nav-icon">📋</span><span class="nav-label">Food Record</span></button>
     <button class="nav-item" data-view="cycles" onclick="switchView('cycles')" disabled title="Coming soon"><span class="nav-icon">🍱</span><span class="nav-label">Menu Cycles</span></button>
     <button class="nav-item" data-view="recipes" onclick="switchView('recipes')"><span class="nav-icon">🍳</span><span class="nav-label">Recipes</span></button>
     <button class="nav-item" data-view="search" onclick="switchView('search')"><span class="nav-icon">🔍</span><span class="nav-label">Food Search</span></button>
@@ -1168,7 +1174,7 @@
     <div class="tab-content active" id="tab-log">
       <!-- PLAN BAR: patient plan header + day strip -->
       <div style="padding:14px 16px 10px;border-bottom:1px solid var(--border);background:var(--surface);">
-        <div style="font-family:var(--font-display);font-weight:600;font-size:22px;letter-spacing:-0.3px;margin-bottom:10px;">Meal Planner</div>
+        <div id="plannerTitle" style="font-family:var(--font-display);font-weight:600;font-size:22px;letter-spacing:-0.3px;margin-bottom:10px;">Meal Planner</div>
         <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;margin-bottom:6px;">
           <input class="field-input" id="planName" type="text" placeholder="Plan name — e.g. Bed 12 · 1800 kcal low Na" style="flex:2;min-width:160px;font-size:12px;" oninput="planFieldChange()">
           <input class="field-input" id="planPatient" type="text" placeholder="Patient" style="flex:1;min-width:80px;font-size:12px;" oninput="planFieldChange()">
@@ -1178,8 +1184,14 @@
           <select class="field-input" id="planLoadSelect" style="flex:1;min-width:140px;font-size:11px;" onchange="loadPlanById(this.value)">
             <option value="">Open saved plan…</option>
           </select>
-          <button class="btn-secondary" style="font-size:11px;padding:5px 9px;" onclick="newPlan()">＋ New plan</button>
-          <button class="btn-secondary" style="font-size:11px;padding:5px 9px;" onclick="printPlanHandout()" title="Print a patient handout of this plan">Handout</button>
+          <button class="btn-secondary" id="newEntityBtn" style="font-size:11px;padding:5px 9px;" onclick="newPlan()">＋ New plan</button>
+          <select class="field-input" id="recordTypeSelect" style="display:none;font-size:11px;max-width:150px;" onchange="if(currentPlan){currentPlan.type=this.value;autosavePlan();}">
+            <option value="24h-recall">24-h recall</option>
+            <option value="food-record" selected>Food record</option>
+            <option value="ward-chart">Ward intake chart</option>
+          </select>
+          <button class="btn-secondary" id="handoutBtn" style="font-size:11px;padding:5px 9px;" onclick="printPlanHandout()" title="Print a patient handout of this plan">Handout</button>
+          <button class="btn-primary" id="copyNotesBtn" style="display:none;font-size:11px;padding:5px 10px;" onclick="copyRecordNotes()" title="Copy an intake summary for your clinical notes">⎘ Copy for notes</button>
           <details class="pg-menu" style="display:inline-block;">
             <summary class="btn-secondary" style="font-size:11px;padding:5px 10px;display:inline-block;">⋯</summary>
             <div class="pg-menu-items" style="top:32px;">
@@ -3464,7 +3476,7 @@ const MEAL_NAMES = {
 // panels arrive in later phases (nav items stay disabled until then).
 const VIEW_MAP = {
   planner: { tab: 'log' },
-  record:  { tab: null },      // Phase 4b
+  record:  { tab: 'log' },     // Food Record shares the planner UI in 'record' mode
   cycles:  { tab: null },      // Phase 5
   recipes: { tab: 'library' }, // Library is the Recipes home; the builder is reached from it
   search:  { tab: 'search' },
@@ -3484,6 +3496,7 @@ function switchView(view) {
   document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === view));
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
   document.getElementById('tab-' + v.tab).classList.add('active');
+  if (view === 'planner' || view === 'record') setPlannerMode(view === 'record' ? 'record' : 'plan');
 }
 
 // Legacy wrapper — a few code paths still call switchTab by tab name.
@@ -4454,9 +4467,16 @@ function renderMealLog() {
       const swapBtn = item.rref
         ? `<button class="log-del" style="color:var(--accent);" title="Swap for another compliant recipe" onclick="event.stopPropagation();showSwapModal('${meal}',${idx})">⇄</button>`
         : '';
+      // Food Record: fraction chips to log partial consumption ("ate ½ of it")
+      const fracChips = plannerMode === 'record'
+        ? `<span class="frac-chips" onclick="event.stopPropagation()">` +
+          [[0.25,'¼'],[0.5,'½'],[0.75,'¾'],[1,'all']].map(([f,l]) =>
+            `<button onclick="scaleLogItem('${meal}',${idx},${f})" title="Patient ate ${l === 'all' ? 'all' : l} of this">${l}</button>`).join('') +
+          `</span>`
+        : '';
       return `<div class="log-item" style="${gridStyle};cursor:pointer;" onclick="showLogItemDetail('${meal}',${idx})">
         <span class="db-tag tag-${item.food.db}" style="font-size:8px;justify-self:center;">${item.food.db.toUpperCase()}</span>
-        <span class="log-item-name" onmouseenter="showNameTip(event, this)" onmouseleave="hideNameTip()" data-fullname="${item.food.name.replace(/"/g,'&quot;')}">${item._auto ? '✨ ' : ''}${item.food.name}${swapBtn ? ' ' + swapBtn : ''}</span>
+        <span class="log-item-name" onmouseenter="showNameTip(event, this)" onmouseleave="hideNameTip()" data-fullname="${item.food.name.replace(/"/g,'&quot;')}">${item._auto ? '✨ ' : ''}${item.food.name}${swapBtn ? ' ' + swapBtn : ''}${fracChips}</span>
         <span class="log-item-portion">${item.portionLabel || item.grams+'g'}</span>
         ${nutrcols}
         <span class="log-item-kcal">${Math.round(item.food.kcal*item.grams/100)}</span>
@@ -4605,6 +4625,102 @@ function clearLog() {
 let currentPlan = null;
 let currentDayIdx = 0;
 let analysisScope = 'day';   // 'day' | 'plan'
+let plannerMode = 'plan';    // 'plan' | 'record' — Food Record reuses the whole planner engine
+let openEntities = { plan: null, record: null };   // keeps each mode's open entity across switches
+
+function entityKey(){ return (currentPlan && currentPlan._entity === 'record') ? 'ns_records' : 'ns_plans'; }
+function dateLabel(offset){
+  const d = new Date(); d.setDate(d.getDate() + offset);
+  return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
+}
+
+function newBlankRecord(){
+  return { id: 'rec_' + Date.now(), _entity: 'record', type: 'food-record',
+    name: '', patient: '', dietLabel: '', notes: '',
+    created: new Date().toISOString(), modified: new Date().toISOString(),
+    targets: {}, mealPeriods: ALL_PERIODS.slice(), prefs: {},
+    days: [{ label: dateLabel(0), meals: {} }] };
+}
+
+function setPlannerMode(mode){
+  if (plannerMode === mode && currentPlan) { return; }
+  // remember the entity we're leaving
+  if (currentPlan) openEntities[currentPlan._entity === 'record' ? 'record' : 'plan'] = currentPlan;
+  plannerMode = mode;
+  if (mode === 'record') {
+    if (!openEntities.record) {
+      // open the most recent record, or start a fresh one
+      const arr = loadEntityIndex('ns_records');
+      openEntities.record = arr.length
+        ? planFromStorage(arr.sort((a,b) => (b.modified||'').localeCompare(a.modified||''))[0])
+        : newBlankRecord();
+    }
+    currentPlan = openEntities.record;
+  } else {
+    if (!openEntities.plan) openEntities.plan = newBlankPlan();
+    currentPlan = openEntities.plan;
+  }
+  ensurePlanDefaults(currentPlan);
+  currentDayIdx = Math.min(currentDayIdx, currentPlan.days.length - 1) || 0;
+  mealLog = currentPlan.days[currentDayIdx].meals;
+  // chrome
+  const rec = mode === 'record';
+  const el = id => document.getElementById(id);
+  if (el('plannerTitle')) el('plannerTitle').textContent = rec ? 'Food Record' : 'Meal Planner';
+  if (el('newEntityBtn')) el('newEntityBtn').textContent = rec ? '＋ New record' : '＋ New plan';
+  if (el('planName')) el('planName').placeholder = rec ? 'Record name — e.g. Bed 12 · 3-day food record' : 'Plan name — e.g. Bed 12 · 1800 kcal low Na';
+  if (el('recordTypeSelect')) { el('recordTypeSelect').style.display = rec ? '' : 'none'; if (rec) el('recordTypeSelect').value = currentPlan.type || 'food-record'; }
+  if (el('copyNotesBtn')) el('copyNotesBtn').style.display = rec ? '' : 'none';
+  if (el('handoutBtn')) el('handoutBtn').style.display = rec ? 'none' : '';
+  if (el('prefsPanel')) el('prefsPanel').style.display = rec ? 'none' : '';
+  if (el('planName')) el('planName').value = currentPlan.name || '';
+  if (el('planPatient')) el('planPatient').value = currentPlan.patient || '';
+  if (el('planDiet')) el('planDiet').value = currentPlan.dietLabel || '';
+  ['kcal','prot','fat','cho','fibre'].forEach(k => {
+    const e = el('tgt_' + k);
+    if (e) e.value = currentPlan.targets && currentPlan.targets[k] ? currentPlan.targets[k] : '';
+  });
+  renderPlanLoadSelect();
+  renderDayStrip();
+  renderMealLog();
+  updateAnalysis();
+}
+
+function loadEntityIndex(key){ try { return JSON.parse(localStorage.getItem(key)) || []; } catch(e){ return []; } }
+
+function copyRecordNotes(){
+  if (!currentPlan || currentPlan._entity !== 'record') return;
+  syncPlanTargets();
+  const n = currentPlan.days.length;
+  const avg = _planAvgTotals(currentPlan);
+  const t = currentPlan.targets || {};
+  const typeLabel = { '24h-recall': '24-hour recall', 'food-record': n + '-day food record', 'ward-chart': n + '-day ward intake chart' }[currentPlan.type] || 'food record';
+  const dayKcals = currentPlan.days.map(d => Math.round(_dayTotals(d).kcal));
+  const pctE = t.kcal ? Math.round(avg.kcal / t.kcal * 100) : null;
+  const pctP = t.prot ? Math.round(avg.prot / t.prot * 100) : null;
+  const lines = [];
+  lines.push(`${typeLabel}${currentPlan.patient ? ' (' + currentPlan.patient + ')' : ''}: mean intake ≈ ${Math.round(avg.kcal)} kcal, ${avg.prot.toFixed(0)} g protein${avg.fibre ? ', ' + avg.fibre.toFixed(0) + ' g fibre' : ''}.`);
+  if (pctE != null || pctP != null) {
+    const bits = [];
+    if (pctE != null) bits.push(`≈${pctE}% of estimated energy requirements (${t.kcal} kcal)`);
+    if (pctP != null) bits.push(`≈${pctP}% of protein requirements (${t.prot} g)`);
+    lines.push('Meeting ' + bits.join(' and ') + '.');
+  }
+  if (n > 1) lines.push(`Daily intake range ${Math.min(...dayKcals)}–${Math.max(...dayKcals)} kcal.`);
+  lines.push(`Sodium ≈ ${Math.round(avg.na)} mg/day; fluid-contributing items not separately assessed.`);
+  _copyText(lines.join(' '), 'Intake summary copied — paste into your note');
+}
+
+// Record partial consumption: scale an item to a fraction of its full portion
+function scaleLogItem(meal, idx, frac){
+  const item = mealLog[meal] && mealLog[meal][idx];
+  if (!item) return;
+  if (item._base == null) item._base = { grams: item.grams, label: item.portionLabel || item.grams + 'g' };
+  item.grams = Math.round(item._base.grams * frac * 10) / 10;
+  item.portionLabel = (frac === 1 ? '' : (frac === 0.25 ? '¼' : frac === 0.5 ? '½' : '¾') + ' × ') + item._base.label;
+  renderMealLog();
+  updateAnalysis();
+}
 
 function newBlankDay(n){ return { label: 'Day ' + n, meals: {} }; }
 function newBlankPlan(){
@@ -4685,11 +4801,12 @@ function autosavePlan(){
       const v = parseFloat(document.getElementById('tgt_' + k)?.value);
       if (v) currentPlan.targets[k] = v;
     });
-    const arr = loadPlansIndex();
+    const key = entityKey();
+    const arr = loadEntityIndex(key);
     const i = arr.findIndex(p => p.id === currentPlan.id);
     const sp = planToStorage(currentPlan);
     if (i >= 0) arr[i] = sp; else arr.push(sp);
-    nsSave('ns_plans', arr);
+    nsSave(key, arr);
     renderPlanLoadSelect();
   }, 600);
 }
@@ -4712,7 +4829,9 @@ function switchPlanDay(i){
 }
 
 function addPlanDay(){
-  currentPlan.days.push(newBlankDay(currentPlan.days.length + 1));
+  const day = newBlankDay(currentPlan.days.length + 1);
+  if (currentPlan._entity === 'record') day.label = dateLabel(currentPlan.days.length);
+  currentPlan.days.push(day);
   switchPlanDay(currentPlan.days.length - 1);
   autosavePlan();
 }
@@ -4744,19 +4863,20 @@ function renamePlanDay(){
 }
 
 function newPlan(){
-  currentPlan = newBlankPlan();
+  currentPlan = plannerMode === 'record' ? newBlankRecord() : newBlankPlan();
+  openEntities[plannerMode === 'record' ? 'record' : 'plan'] = currentPlan;
   currentDayIdx = 0;
   mealLog = currentPlan.days[0].meals;
   ['planName','planPatient','planDiet'].forEach(id => document.getElementById(id).value = '');
   document.getElementById('planLoadSelect').value = '';
   renderDayStrip(); renderMealLog(); updateAnalysis();
-  showToast('New blank plan');
+  showToast(plannerMode === 'record' ? 'New blank record' : 'New blank plan');
 }
 
 function loadPlanById(id){
   if (!id) return;
-  const sp = loadPlansIndex().find(p => p.id === id);
-  if (!sp) { showToast('Plan not found'); return; }
+  const sp = loadEntityIndex(plannerMode === 'record' ? 'ns_records' : 'ns_plans').find(p => p.id === id);
+  if (!sp) { showToast('Not found'); return; }
   currentPlan = planFromStorage(sp);
   currentDayIdx = 0;
   mealLog = currentPlan.days[0].meals;
@@ -4774,20 +4894,23 @@ function loadPlanById(id){
 
 function deletePlan(){
   if (!currentPlan) return;
-  if (!confirm('Delete plan "' + (currentPlan.name || 'Untitled') + '" permanently?')) return;
-  const arr = loadPlansIndex().filter(p => p.id !== currentPlan.id);
-  nsSave('ns_plans', arr);
+  const noun = currentPlan._entity === 'record' ? 'record' : 'plan';
+  if (!confirm('Delete ' + noun + ' "' + (currentPlan.name || 'Untitled') + '" permanently?')) return;
+  const key = entityKey();
+  const arr = loadEntityIndex(key).filter(p => p.id !== currentPlan.id);
+  nsSave(key, arr);
   renderPlanLoadSelect();
   newPlan();
 }
 
 function renderPlanLoadSelect(){
   const sel = document.getElementById('planLoadSelect'); if (!sel) return;
-  const arr = loadPlansIndex().sort((a,b) => (b.modified||'').localeCompare(a.modified||''));
-  const cur = sel.value;
-  sel.innerHTML = '<option value="">Open saved plan…</option>' +
-    arr.map(p => `<option value="${p.id}" ${currentPlan && p.id===currentPlan.id?'selected':''}>${(p.name||'Untitled plan')}${p.patient?' · '+p.patient:''} (${p.days.length}d)</option>`).join('');
-  if (!currentPlan || !arr.some(p=>p.id===currentPlan.id)) sel.value = cur === '' ? '' : sel.value;
+  const rec = plannerMode === 'record';
+  const arr = loadEntityIndex(rec ? 'ns_records' : 'ns_plans').sort((a,b) => (b.modified||'').localeCompare(a.modified||''));
+  const noun = rec ? 'record' : 'plan';
+  sel.innerHTML = `<option value="">Open saved ${noun}…</option>` +
+    arr.map(p => `<option value="${p.id}" ${currentPlan && p.id===currentPlan.id?'selected':''}>${(p.name||'Untitled '+noun)}${p.patient?' · '+p.patient:''} (${p.days.length}d)</option>`).join('');
+  if (!currentPlan || !arr.some(p=>p.id===currentPlan.id)) sel.value = '';
 }
 
 // ── Side-by-side plan grid: meal periods (rows) × days (columns) ──
