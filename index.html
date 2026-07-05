@@ -998,6 +998,12 @@
     color: var(--text3); border-radius: 7px; cursor: pointer; min-height: 0;
   }
   .frac-chips button:hover { border-color: var(--accent2); color: var(--accent); }
+  .comp-chip {
+    font-size: 9.5px; padding: 2px 7px; border-radius: 9px; font-family: var(--font-num); white-space: nowrap;
+  }
+  .comp-chip.ok   { background: var(--accent-light);  color: var(--accent); }
+  .comp-chip.warn { background: var(--caution-light); color: #9a7d1e; }
+  .comp-chip.off  { background: var(--warn-light);    color: var(--red); }
   /* The planner tab scrolls as ONE column — grid, editor and meal list share the
      scroll instead of fighting for fixed heights (fixed sections crushed the list). */
   #tab-log { overflow-y: auto; overflow-x: hidden; display: block; }
@@ -1086,7 +1092,7 @@
   <nav class="side-nav" id="sideNav">
     <button class="nav-item active" data-view="planner" onclick="switchView('planner')"><span class="nav-icon">📅</span><span class="nav-label">Meal Planner</span></button>
     <button class="nav-item" data-view="record" onclick="switchView('record')"><span class="nav-icon">📋</span><span class="nav-label">Food Record</span></button>
-    <button class="nav-item" data-view="cycles" onclick="switchView('cycles')" disabled title="Coming soon"><span class="nav-icon">🍱</span><span class="nav-label">Menu Cycles</span></button>
+    <button class="nav-item" data-view="cycles" onclick="switchView('cycles')"><span class="nav-icon">🍱</span><span class="nav-label">Menu Cycles</span></button>
     <button class="nav-item" data-view="recipes" onclick="switchView('recipes')"><span class="nav-icon">🍳</span><span class="nav-label">Recipes</span></button>
     <button class="nav-item" data-view="search" onclick="switchView('search')"><span class="nav-icon">🔍</span><span class="nav-label">Food Search</span></button>
     <button class="nav-item" data-view="data" onclick="switchView('data')"><span class="nav-icon">🗄️</span><span class="nav-label">Import &amp; Data</span></button>
@@ -1201,6 +1207,12 @@
             </div>
           </details>
         </div>
+        <div id="dietCodeWrap" style="display:none;gap:6px;align-items:center;margin-top:8px;">
+          <span style="font-size:9px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;">Diet code:</span>
+          <select class="field-input" id="dietCodeSelect" style="font-size:11px;max-width:220px;" onchange="if(currentPlan){currentPlan.dietCodeId=this.value;autosavePlan();renderComplianceBar();renderPlanGrid();}"></select>
+          <button class="btn-secondary" style="font-size:10px;padding:4px 9px;" onclick="showDietCodesModal()">⚙ Standards</button>
+        </div>
+        <div id="complianceBar" style="display:none;margin-top:8px;"></div>
         <div id="periodChecks" style="display:flex;gap:5px;flex-wrap:wrap;margin-top:9px;align-items:center;"></div>
         <details id="prefsPanel" style="margin-top:9px;">
           <summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;">
@@ -3477,7 +3489,7 @@ const MEAL_NAMES = {
 const VIEW_MAP = {
   planner: { tab: 'log' },
   record:  { tab: 'log' },     // Food Record shares the planner UI in 'record' mode
-  cycles:  { tab: null },      // Phase 5
+  cycles:  { tab: 'log' },     // Menu Cycles shares it too, in 'cycle' mode
   recipes: { tab: 'library' }, // Library is the Recipes home; the builder is reached from it
   search:  { tab: 'search' },
   data:    { tab: 'custom' },
@@ -3496,7 +3508,8 @@ function switchView(view) {
   document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === view));
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
   document.getElementById('tab-' + v.tab).classList.add('active');
-  if (view === 'planner' || view === 'record') setPlannerMode(view === 'record' ? 'record' : 'plan');
+  if (view === 'planner' || view === 'record' || view === 'cycles')
+    setPlannerMode(view === 'record' ? 'record' : view === 'cycles' ? 'cycle' : 'plan');
 }
 
 // Legacy wrapper — a few code paths still call switchTab by tab name.
@@ -4521,6 +4534,7 @@ function renderMealLog() {
   area.innerHTML = globalHeader + sections;
   updateDailyTotal();
   if (typeof renderPlanGrid === 'function') renderPlanGrid();
+  if (typeof renderComplianceBar === 'function') renderComplianceBar();
 }
 
 function updateDailyTotal() {
@@ -4625,10 +4639,13 @@ function clearLog() {
 let currentPlan = null;
 let currentDayIdx = 0;
 let analysisScope = 'day';   // 'day' | 'plan'
-let plannerMode = 'plan';    // 'plan' | 'record' — Food Record reuses the whole planner engine
-let openEntities = { plan: null, record: null };   // keeps each mode's open entity across switches
+let plannerMode = 'plan';    // 'plan' | 'record' | 'cycle' — all three reuse the planner engine
+let openEntities = { plan: null, record: null, cycle: null };   // keeps each mode's open entity across switches
 
-function entityKey(){ return (currentPlan && currentPlan._entity === 'record') ? 'ns_records' : 'ns_plans'; }
+function entityKey(){
+  const e = currentPlan && currentPlan._entity;
+  return e === 'record' ? 'ns_records' : e === 'cycle' ? 'ns_cycles' : 'ns_plans';
+}
 function dateLabel(offset){
   const d = new Date(); d.setDate(d.getDate() + offset);
   return d.toLocaleDateString('en-GB', { weekday: 'short', day: 'numeric', month: 'short' });
@@ -4642,20 +4659,67 @@ function newBlankRecord(){
     days: [{ label: dateLabel(0), meals: {} }] };
 }
 
+function newBlankCycle(){
+  return { id: 'cy_' + Date.now(), _entity: 'cycle', dietCodeId: 'dc_regular',
+    name: '', patient: '', dietLabel: '', notes: '',
+    created: new Date().toISOString(), modified: new Date().toISOString(),
+    targets: {}, mealPeriods: ALL_PERIODS.slice(), prefs: {},
+    days: [newBlankDay(1)] };
+}
+
+function dietCodes(){ return loadEntityIndex('ns_diet_codes'); }
+function currentDietCode(){
+  if (!currentPlan || currentPlan._entity !== 'cycle') return null;
+  return dietCodes().find(d => d.id === currentPlan.dietCodeId) || null;
+}
+
+// Effective preferences: the panel's prefs plus the cycle's diet-code constraints
+function effectivePrefs(){
+  const p = JSON.parse(JSON.stringify(planPrefs()));
+  const dc = currentDietCode();
+  if (dc) {
+    (dc.requiredTags || []).forEach(t => { if (!p.dietTags.includes(t)) p.dietTags.push(t); });
+    (dc.excludedAllergens || []).forEach(a => { if (!p.avoidAllergens.includes(a)) p.avoidAllergens.push(a); });
+  }
+  return p;
+}
+
+// Evaluate day/cycle totals against a diet code's rules → [{key,label,val,rule,status}]
+const RULE_LABELS = { kcal:'Energy', prot:'Protein', fat:'Fat', cho:'CHO', fibre:'Fibre', sugar:'Sugars', na:'Sodium', k:'Potassium', p:'Phosphate', ca:'Calcium', fe:'Iron', mg:'Magnesium' };
+const RULE_UNITS  = { kcal:'kcal', prot:'g', fat:'g', cho:'g', fibre:'g', sugar:'g', na:'mg', k:'mg', p:'mg', ca:'mg', fe:'mg', mg:'mg' };
+function evaluateCompliance(totals, dc){
+  if (!dc || !dc.rules) return [];
+  return Object.entries(dc.rules).map(([key, rule]) => {
+    if (!rule || (rule.min == null && rule.max == null)) return null;
+    const val = totals[key] || 0;
+    let status = 'pass';
+    if (rule.min != null && val < rule.min) status = 'fail';
+    else if (rule.max != null && val > rule.max) status = 'fail';
+    else if ((rule.min != null && val < rule.min * 1.1) || (rule.max != null && val > rule.max * 0.9)) status = 'warn';
+    return { key, label: RULE_LABELS[key] || key, unit: RULE_UNITS[key] || '', val, rule, status };
+  }).filter(Boolean);
+}
+function complianceStatus(results){
+  if (!results.length) return 'none';
+  if (results.some(r => r.status === 'fail')) return 'fail';
+  if (results.some(r => r.status === 'warn')) return 'warn';
+  return 'pass';
+}
+
 function setPlannerMode(mode){
   if (plannerMode === mode && currentPlan) { return; }
   // remember the entity we're leaving
-  if (currentPlan) openEntities[currentPlan._entity === 'record' ? 'record' : 'plan'] = currentPlan;
+  if (currentPlan) openEntities[currentPlan._entity === 'cycle' ? 'cycle' : currentPlan._entity === 'record' ? 'record' : 'plan'] = currentPlan;
   plannerMode = mode;
-  if (mode === 'record') {
-    if (!openEntities.record) {
-      // open the most recent record, or start a fresh one
-      const arr = loadEntityIndex('ns_records');
-      openEntities.record = arr.length
+  if (mode === 'record' || mode === 'cycle') {
+    if (!openEntities[mode]) {
+      // open the most recent entity of this kind, or start a fresh one
+      const arr = loadEntityIndex(mode === 'record' ? 'ns_records' : 'ns_cycles');
+      openEntities[mode] = arr.length
         ? planFromStorage(arr.sort((a,b) => (b.modified||'').localeCompare(a.modified||''))[0])
-        : newBlankRecord();
+        : (mode === 'record' ? newBlankRecord() : newBlankCycle());
     }
-    currentPlan = openEntities.record;
+    currentPlan = openEntities[mode];
   } else {
     if (!openEntities.plan) openEntities.plan = newBlankPlan();
     currentPlan = openEntities.plan;
@@ -4664,15 +4728,20 @@ function setPlannerMode(mode){
   currentDayIdx = Math.min(currentDayIdx, currentPlan.days.length - 1) || 0;
   mealLog = currentPlan.days[currentDayIdx].meals;
   // chrome
-  const rec = mode === 'record';
+  const rec = mode === 'record', cyc = mode === 'cycle';
   const el = id => document.getElementById(id);
-  if (el('plannerTitle')) el('plannerTitle').textContent = rec ? 'Food Record' : 'Meal Planner';
-  if (el('newEntityBtn')) el('newEntityBtn').textContent = rec ? '＋ New record' : '＋ New plan';
-  if (el('planName')) el('planName').placeholder = rec ? 'Record name — e.g. Bed 12 · 3-day food record' : 'Plan name — e.g. Bed 12 · 1800 kcal low Na';
+  if (el('plannerTitle')) el('plannerTitle').textContent = rec ? 'Food Record' : cyc ? 'Menu Cycles' : 'Meal Planner';
+  if (el('newEntityBtn')) el('newEntityBtn').textContent = rec ? '＋ New record' : cyc ? '＋ New cycle' : '＋ New plan';
+  if (el('planName')) el('planName').placeholder = rec ? 'Record name — e.g. Bed 12 · 3-day food record' : cyc ? 'Cycle name — e.g. General ward · Week 1' : 'Plan name — e.g. Bed 12 · 1800 kcal low Na';
   if (el('recordTypeSelect')) { el('recordTypeSelect').style.display = rec ? '' : 'none'; if (rec) el('recordTypeSelect').value = currentPlan.type || 'food-record'; }
   if (el('copyNotesBtn')) el('copyNotesBtn').style.display = rec ? '' : 'none';
   if (el('handoutBtn')) el('handoutBtn').style.display = rec ? 'none' : '';
   if (el('prefsPanel')) el('prefsPanel').style.display = rec ? 'none' : '';
+  if (el('planPatient')) el('planPatient').style.display = cyc ? 'none' : '';
+  if (el('planDiet')) el('planDiet').style.display = cyc ? 'none' : '';
+  if (el('dietCodeWrap')) el('dietCodeWrap').style.display = cyc ? 'flex' : 'none';
+  if (cyc) renderDietCodeSelect();
+  if (el('complianceBar')) el('complianceBar').style.display = cyc ? '' : 'none';
   if (el('planName')) el('planName').value = currentPlan.name || '';
   if (el('planPatient')) el('planPatient').value = currentPlan.patient || '';
   if (el('planDiet')) el('planDiet').value = currentPlan.dietLabel || '';
@@ -4709,6 +4778,77 @@ function copyRecordNotes(){
   if (n > 1) lines.push(`Daily intake range ${Math.min(...dayKcals)}–${Math.max(...dayKcals)} kcal.`);
   lines.push(`Sodium ≈ ${Math.round(avg.na)} mg/day; fluid-contributing items not separately assessed.`);
   _copyText(lines.join(' '), 'Intake summary copied — paste into your note');
+}
+
+// ── Menu-cycle compliance UI ──
+function renderDietCodeSelect(){
+  const sel = document.getElementById('dietCodeSelect'); if (!sel || !currentPlan) return;
+  sel.innerHTML = dietCodes().map(d => `<option value="${d.id}" ${d.id === currentPlan.dietCodeId ? 'selected' : ''}>${d.name} (${d.code})</option>`).join('');
+}
+
+function renderComplianceBar(){
+  const el = document.getElementById('complianceBar'); if (!el) return;
+  if (plannerMode !== 'cycle') { el.style.display = 'none'; return; }
+  el.style.display = '';
+  const dc = currentDietCode();
+  if (!dc) { el.innerHTML = '<span style="font-size:11px;color:var(--text3);">Pick a diet code to check compliance.</span>'; return; }
+  const n = currentPlan.days.length || 1;
+  const avg = computeTotals(currentPlan.days.flatMap(d => Object.values(d.meals).flat().map(it => ({ food: it.food, grams: it.grams / n, retention: it.retention }))));
+  const results = evaluateCompliance(avg, dc);
+  const overall = complianceStatus(results);
+  const chip = r => {
+    const cls = r.status === 'fail' ? 'off' : r.status === 'warn' ? 'warn' : 'ok';
+    const bound = [r.rule.min != null ? '≥' + r.rule.min : null, r.rule.max != null ? '≤' + r.rule.max : null].filter(Boolean).join(' ');
+    return `<span class="comp-chip ${cls}" title="${r.label}: ${Math.round(r.val)} ${r.unit} (standard ${bound} ${r.unit})">${r.status === 'fail' ? '✗' : r.status === 'warn' ? '△' : '✓'} ${r.label} ${Math.round(r.val)}<span style="opacity:0.6">/${bound}</span></span>`;
+  };
+  el.innerHTML = `<div style="display:flex;gap:5px;flex-wrap:wrap;align-items:center;">
+    <span style="font-size:9px;font-weight:700;letter-spacing:0.5px;text-transform:uppercase;color:${overall === 'fail' ? 'var(--red)' : overall === 'warn' ? '#9a7d1e' : 'var(--accent)'};">
+      ${overall === 'fail' ? '✗ Not meeting' : overall === 'warn' ? '△ Borderline vs' : '✓ Meets'} ${dc.name} standards (cycle avg/day):</span>
+    ${results.map(chip).join('')}
+  </div>`;
+}
+
+// Diet-code standards editor (rules per day)
+const RULE_KEYS = ['kcal','prot','fat','cho','fibre','sugar','na','k','p','ca','fe','mg'];
+function showDietCodesModal(){
+  let modal = document.getElementById('dietCodesModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'dietCodesModal';
+    modal.className = 'kaana-modal-backdrop';
+    modal.onclick = e => { if (e.target === modal) modal.remove(); };
+    document.body.appendChild(modal);
+  }
+  const codes = dietCodes();
+  const rows = codes.map((d, di) => {
+    const cells = RULE_KEYS.map(k => {
+      const r = (d.rules || {})[k] || {};
+      return `<td><input type="number" placeholder="min" value="${r.min != null ? r.min : ''}" style="width:52px;font-size:10px;padding:2px 3px;" onchange="updateDietRule(${di},'${k}','min',this.value)">
+              <input type="number" placeholder="max" value="${r.max != null ? r.max : ''}" style="width:52px;font-size:10px;padding:2px 3px;" onchange="updateDietRule(${di},'${k}','max',this.value)"></td>`;
+    }).join('');
+    return `<tr><td style="white-space:nowrap;font-weight:600;">${d.name}<br><span style="font-size:9px;color:var(--text3);">${d.code}</span></td>${cells}</tr>`;
+  }).join('');
+  modal.innerHTML = `<div class="kaana-modal" style="max-width:96vw;max-height:84vh;overflow:auto;">
+    <div style="font-size:15px;font-weight:600;margin-bottom:4px;">Diet code standards <span style="font-weight:400;font-size:11px;color:var(--text3);">per day · min/max per nutrient · blank = no rule</span></div>
+    <table style="border-collapse:collapse;font-size:10px;">
+      <tr><th style="text-align:left;padding:4px;">Code</th>${RULE_KEYS.map(k => `<th style="padding:4px;text-align:left;">${RULE_LABELS[k]}<br><span style="font-weight:400;color:var(--text3);">${RULE_UNITS[k]}</span></th>`).join('')}</tr>
+      ${rows}
+    </table>
+    <div style="display:flex;gap:8px;margin-top:12px;">
+      <button class="btn-primary" style="flex:1;" onclick="document.getElementById('dietCodesModal').remove();renderComplianceBar();renderPlanGrid();renderDietCodeSelect();">Done</button>
+    </div>
+  </div>`;
+}
+
+function updateDietRule(codeIdx, key, bound, value){
+  const codes = dietCodes();
+  const d = codes[codeIdx]; if (!d) return;
+  d.rules = d.rules || {};
+  d.rules[key] = d.rules[key] || {};
+  const v = parseFloat(value);
+  if (isNaN(v)) delete d.rules[key][bound]; else d.rules[key][bound] = v;
+  if (d.rules[key].min == null && d.rules[key].max == null) delete d.rules[key];
+  nsSave('ns_diet_codes', codes);
 }
 
 // Record partial consumption: scale an item to a fraction of its full portion
@@ -4980,11 +5120,21 @@ function renderPlanGrid(){
   days.forEach((d, i) => {
     const t = computeTotals(Object.values(d.meals).flat());
     const kcal = Math.round(t.kcal);
-    let chipCls = '';
-    if (tgtKcal) { const pct = kcal / tgtKcal * 100; chipCls = (pct >= 90 && pct <= 110) ? 'ok' : 'off'; }
+    let chipCls = '', chipTitle = '';
+    if (plannerMode === 'cycle') {
+      // cycle mode: chip reflects per-day compliance with the diet code
+      const dc = currentDietCode();
+      if (dc) {
+        const res = evaluateCompliance(t, dc);
+        const st = complianceStatus(res);
+        chipCls = st === 'pass' ? 'ok' : st === 'fail' ? 'off' : '';
+        chipTitle = res.filter(r => r.status !== 'pass').map(r => `${r.label} ${Math.round(r.val)}${r.unit}`).join(', ');
+        if (chipTitle) chipTitle = 'Outside standard: ' + chipTitle;
+      }
+    } else if (tgtKcal) { const pct = kcal / tgtKcal * 100; chipCls = (pct >= 90 && pct <= 110) ? 'ok' : 'off'; }
     html += `<div class="pg-day-head ${i===currentDayIdx?'selected':''}" onclick="switchPlanDay(${i})">
       <span class="pg-day-name">${d.label}</span>
-      <span class="pg-kcal-chip ${chipCls}">${kcal} kcal</span>
+      <span class="pg-kcal-chip ${chipCls}" title="${chipTitle}">${kcal} kcal</span>
       <details class="pg-menu" onclick="event.stopPropagation()">
         <summary>⋮</summary>
         <div class="pg-menu-items">
@@ -5102,7 +5252,7 @@ function eligibleRecipes(p){
 
 function autoFillPlan(){
   if (!currentPlan) return;
-  const p = planPrefs();
+  const p = effectivePrefs();   // panel prefs + (in cycle mode) the diet code's constraints
   const eligible = eligibleRecipes(p);
   const note = document.getElementById('autoFillNote');
   if (!eligible.length) {
@@ -5174,7 +5324,7 @@ function autoFillPlan(){
 function showSwapModal(meal, idx){
   const item = mealLog[meal] && mealLog[meal][idx];
   if (!item || !item.rref) return;
-  const p = planPrefs();
+  const p = effectivePrefs();
   const eligible = eligibleRecipes(p);
   const altIds = item._alts || [];
   const alts = altIds.map(id => recipeById(id)).filter(Boolean);
@@ -5285,13 +5435,16 @@ function buildPrintSheet(plan){
   const avg = _planAvgTotals(plan);
   const tgtRow = (label, val, target, unit, d=0) => `<tr><td>${label}</td><td>${fmt(val,d)} ${unit}</td><td>${target?fmt(target,0)+' '+unit:'—'}</td><td>${target?Math.round(val/target*100)+'%':'—'}</td></tr>`;
 
+  const isCycle = plan._entity === 'cycle';
+  const dcName = isCycle ? ((dietCodes().find(d => d.id === plan.dietCodeId) || {}).name || '') : '';
   el.innerHTML = `
     <div class="ps-header">
       <div class="ps-hospital">Tree Top Hospital</div>
-      <div class="ps-title">Patient Meal Plan${plan.name ? ' — ' + esc(plan.name) : ''}</div>
+      <div class="ps-title">${isCycle ? 'Menu Cycle' : 'Patient Meal Plan'}${plan.name ? ' — ' + esc(plan.name) : ''}</div>
       <div class="ps-meta">
-        ${plan.patient ? `<span><strong>Patient:</strong> ${esc(plan.patient)}</span>` : ''}
-        ${plan.dietLabel ? `<span><strong>Diet:</strong> ${esc(plan.dietLabel)}</span>` : ''}
+        ${isCycle && dcName ? `<span><strong>Diet code:</strong> ${esc(dcName)}</span>` : ''}
+        ${!isCycle && plan.patient ? `<span><strong>Patient:</strong> ${esc(plan.patient)}</span>` : ''}
+        ${!isCycle && plan.dietLabel ? `<span><strong>Diet:</strong> ${esc(plan.dietLabel)}</span>` : ''}
         <span><strong>Days:</strong> ${plan.days.length}</span>
         <span><strong>Date:</strong> ${today}</span>
         <span><strong>Dietitian:</strong> Aminath Iasha, APD</span>
