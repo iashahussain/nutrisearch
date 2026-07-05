@@ -988,6 +988,10 @@
     background: var(--surface); border-radius: 15px; box-shadow: var(--shadow-lg);
     padding: 18px; width: 100%; max-width: 430px; animation: tabFade 160ms ease;
   }
+  .swap-row {
+    display: flex; align-items: center; gap: 9px; padding: 7px 6px; border-radius: 9px; cursor: pointer;
+  }
+  .swap-row:hover { background: var(--surface2); }
   /* The planner tab scrolls as ONE column — grid, editor and meal list share the
      scroll instead of fighting for fixed heights (fixed sections crushed the list). */
   #tab-log { overflow-y: auto; overflow-x: hidden; display: block; }
@@ -1186,6 +1190,17 @@
           </details>
         </div>
         <div id="periodChecks" style="display:flex;gap:5px;flex-wrap:wrap;margin-top:9px;align-items:center;"></div>
+        <details id="prefsPanel" style="margin-top:9px;">
+          <summary style="cursor:pointer;list-style:none;display:flex;align-items:center;gap:8px;">
+            <span style="font-size:10px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.6px;">🩺 Patient needs &amp; auto-fill ▾</span>
+            <span id="prefsSummary" style="font-size:10px;color:var(--text3);"></span>
+          </summary>
+          <div id="prefsChips" style="margin-top:8px;"></div>
+          <div style="display:flex;gap:8px;margin-top:8px;align-items:center;">
+            <button class="btn-primary" style="font-size:12px;padding:7px 14px;" onclick="autoFillPlan()">✨ Auto-fill empty meals</button>
+            <span id="autoFillNote" style="font-size:10px;color:var(--text3);"></span>
+          </div>
+        </details>
       </div>
       <!-- SIDE-BY-SIDE PLAN GRID: meal periods × days -->
       <div id="planGridWrap" style="padding:10px 12px;border-bottom:1px solid var(--border);background:var(--surface);overflow-x:auto;flex-shrink:0;max-height:44vh;overflow-y:auto;">
@@ -4436,9 +4451,12 @@ function renderMealLog() {
         return `<span class="log-nutrient" style="${style}">${disp}</span>`;
       }).join('');
 
+      const swapBtn = item.rref
+        ? `<button class="log-del" style="color:var(--accent);" title="Swap for another compliant recipe" onclick="event.stopPropagation();showSwapModal('${meal}',${idx})">⇄</button>`
+        : '';
       return `<div class="log-item" style="${gridStyle};cursor:pointer;" onclick="showLogItemDetail('${meal}',${idx})">
         <span class="db-tag tag-${item.food.db}" style="font-size:8px;justify-self:center;">${item.food.db.toUpperCase()}</span>
-        <span class="log-item-name" onmouseenter="showNameTip(event, this)" onmouseleave="hideNameTip()" data-fullname="${item.food.name.replace(/"/g,'&quot;')}">${item.food.name}</span>
+        <span class="log-item-name" onmouseenter="showNameTip(event, this)" onmouseleave="hideNameTip()" data-fullname="${item.food.name.replace(/"/g,'&quot;')}">${item._auto ? '✨ ' : ''}${item.food.name}${swapBtn ? ' ' + swapBtn : ''}</span>
         <span class="log-item-portion">${item.portionLabel || item.grams+'g'}</span>
         ${nutrcols}
         <span class="log-item-kcal">${Math.round(item.food.kcal*item.grams/100)}</span>
@@ -4610,6 +4628,8 @@ function slimItem(it){
   // recipe reference: keep the rref plus a per-100g snapshot for resilience
   if (it.rref) {
     const out = { name: f.name || it.name, grams: it.grams, portionLabel: it.portionLabel, rref: it.rref };
+    if (it._auto) out.auto = true;
+    if (it._alts && it._alts.length) out.alts = it._alts;
     out.snap = {}; NUTRIENT_KEYS.forEach(k => out.snap[k] = parseFloat(f[k]) || 0);
     return out;
   }
@@ -4626,7 +4646,7 @@ function fattenItem(s){
   // recipe reference: rebuild fresh from the bank (recipe may have been edited)
   if (s.rref) {
     const rec = typeof recipeById === 'function' ? recipeById(s.rref.recipeId) : null;
-    if (rec) return recipeSlotItem(rec, s.rref.servings);
+    if (rec) { const it = recipeSlotItem(rec, s.rref.servings); if (s.auto) it._auto = true; if (s.alts) it._alts = s.alts; return it; }
     if (s.snap) {
       const food = Object.assign({ name: (s.name || 'Recipe') + ' (deleted recipe — saved values)', cat: 'Recipe', db: 'recipe', code: s.rref.recipeId }, s.snap);
       return { food, grams: s.grams, portionLabel: s.portionLabel, rref: s.rref, _missing: true };
@@ -4787,6 +4807,7 @@ function ensurePlanDefaults(plan){
 function renderDayStrip(){          // legacy name — call sites unchanged
   renderPeriodChecks();
   renderPlanGrid();
+  if (typeof renderPrefsChips === 'function') renderPrefsChips();
 }
 
 function renderPeriodChecks(){
@@ -4892,6 +4913,186 @@ function toggleDayEditor(){
   document.getElementById('tab-log').classList.toggle('editor-collapsed', !dayEditorOpen);
   const ch = document.getElementById('dayEditorChevron');
   if (ch) ch.textContent = dayEditorOpen ? '▾' : '▸';
+}
+
+// ════════════════════════════════════════════════
+// PATIENT PREFERENCES → AUTO-FILL + SWAP
+// Hard filters (allergens / IDDSI / lifestyle / diet tags) then greedy
+// kcal-budget fitting per meal period with variety penalties.
+// ════════════════════════════════════════════════
+const PERIOD_WEIGHTS = { breakfast:0.22, morning_snack:0.08, lunch:0.30, afternoon_snack:0.08, dinner:0.25, evening_snack:0.07 };
+
+function blankPrefs(){ return { dietTags:[], avoidAllergens:[], iddsi:null, lifestyle:[], cuisinePrefer:[] }; }
+
+function planPrefs(){
+  if (!currentPlan.prefs || !Array.isArray(currentPlan.prefs.dietTags)) currentPlan.prefs = blankPrefs();
+  return currentPlan.prefs;
+}
+
+function togglePref(group, key){
+  const p = planPrefs();
+  if (group === 'iddsi') p.iddsi = p.iddsi === key ? null : key;
+  else {
+    const arr = p[group];
+    const i = arr.indexOf(key);
+    if (i >= 0) arr.splice(i, 1); else arr.push(key);
+  }
+  renderPrefsChips();
+  autosavePlan();
+}
+
+function renderPrefsChips(){
+  const el = document.getElementById('prefsChips'); if (!el || !currentPlan) return;
+  const p = planPrefs();
+  const chip = (group, key, label, on) =>
+    `<span class="period-chip ${on?'on':''}" style="font-size:10px;padding:3px 8px;" onclick="togglePref('${group}', ${typeof key === 'number' ? key : `'${key}'`})">${label}</span>`;
+  const row = (title, html) => `<div style="margin-bottom:6px;"><span style="font-size:9px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;display:block;margin-bottom:3px;">${title}</span><div style="display:flex;gap:4px;flex-wrap:wrap;">${html}</div></div>`;
+  el.innerHTML =
+    row('Therapeutic diet needs', TAG_DIETS.map(([k,l]) => chip('dietTags', k, l, p.dietTags.includes(k))).join('')) +
+    row('Avoid allergens', TAG_ALLERGENS.map(([k,l]) => chip('avoidAllergens', k, l, p.avoidAllergens.includes(k))).join('')) +
+    row('IDDSI texture required', TAG_IDDSI.map(([k,l]) => chip('iddsi', k, l, p.iddsi === k)).join('')) +
+    row('Lifestyle', TAG_LIFESTYLE.map(([k,l]) => chip('lifestyle', k, l, p.lifestyle.includes(k))).join('')) +
+    row('Prefer cuisine', TAG_CUISINE.map(([k,l]) => chip('cuisinePrefer', k, l, p.cuisinePrefer.includes(k))).join(''));
+  const bits = [];
+  if (p.dietTags.length) bits.push(p.dietTags.join(', '));
+  if (p.avoidAllergens.length) bits.push('no ' + p.avoidAllergens.join('/'));
+  if (p.iddsi) bits.push('IDDSI ' + p.iddsi);
+  if (p.lifestyle.length) bits.push(p.lifestyle.join(', '));
+  const sum = document.getElementById('prefsSummary');
+  if (sum) sum.textContent = bits.length ? '· ' + bits.join(' · ') : '';
+}
+
+// Recipes compliant with the current preferences (the safety filter)
+function eligibleRecipes(p){
+  return recipeBank().filter(r => {
+    const t = r.tags || blankTags();
+    if (p.avoidAllergens.length && p.avoidAllergens.some(a => (t.allergens||[]).includes(a))) return false;
+    if (p.iddsi != null && t.iddsi !== p.iddsi) return false;
+    for (const l of p.lifestyle) {
+      const has = (t.lifestyle||[]).includes(l) || (l === 'vegetarian' && (t.lifestyle||[]).includes('vegan'));
+      if (!has) return false;
+    }
+    if (p.dietTags.length && !p.dietTags.every(d => (t.diets||[]).includes(d))) return false;
+    return true;
+  });
+}
+
+function autoFillPlan(){
+  if (!currentPlan) return;
+  const p = planPrefs();
+  const eligible = eligibleRecipes(p);
+  const note = document.getElementById('autoFillNote');
+  if (!eligible.length) {
+    showToast('No recipes match these needs — relax a filter or tag more recipes');
+    if (note) note.textContent = '0 compliant recipes in the bank.';
+    return;
+  }
+  const periods = currentPlan.mealPeriods.length ? currentPlan.mealPeriods : ALL_PERIODS;
+  const wSum = periods.reduce((s, m) => s + PERIOD_WEIGHTS[m], 0);
+  const tgtKcal = parseFloat(document.getElementById('tgt_kcal')?.value) || 2000;
+  const tgtProt = parseFloat(document.getElementById('tgt_prot')?.value) || null;
+  const usedOn = new Map();   // recipeId -> [dayIdx,...] for variety penalties
+  currentPlan.days.forEach((d, di) => Object.values(d.meals).flat().forEach(it => {
+    if (it.rref) { const u = usedOn.get(it.rref.recipeId) || []; u.push(di); usedOn.set(it.rref.recipeId, u); }
+  }));
+  let placed = 0, thinPools = [];
+
+  currentPlan.days.forEach((day, di) => {
+    periods.forEach(meal => {
+      if ((day.meals[meal] || []).length) return;      // only fill EMPTY slots
+      // pool preference order: period-tagged & not used today → any compliant & not used today → period-tagged (repeat unavoidable)
+      const todays = new Set(Object.values(day.meals).flat().map(it => it.rref && it.rref.recipeId).filter(Boolean));
+      const periodPool = eligible.filter(r => (r.tags.mealPeriods || []).includes(meal));
+      let pool = periodPool.filter(r => !todays.has(r.id));
+      if (!pool.length) {
+        pool = eligible.filter(r => !todays.has(r.id));
+        if (pool.length && !thinPools.includes(MEAL_NAMES[meal])) thinPools.push(MEAL_NAMES[meal]);
+      }
+      if (!pool.length) pool = periodPool.length ? periodPool : eligible;
+      const budget = tgtKcal * PERIOD_WEIGHTS[meal] / wSum;
+      const pBudget = tgtProt ? tgtProt * PERIOD_WEIGHTS[meal] / wSum : null;
+      const scored = pool.map(r => {
+        const ps = r._cache && r._cache.perServe || { kcal: 0, prot: 0 };
+        let best = { s: 1, err: Infinity };
+        [0.5, 1, 1.5, 2].forEach(s => {
+          const err = Math.abs(budget - ps.kcal * s);
+          if (err < best.err) best = { s, err };
+        });
+        let score = -best.err / Math.max(budget, 1) * 10;
+        if (pBudget && ps.prot) score -= Math.abs(pBudget - ps.prot * best.s) / pBudget * 4;
+        const u = usedOn.get(r.id) || [];
+        if (u.includes(di)) score -= 3;
+        if (u.some(x => Math.abs(x - di) <= 2)) score -= 1.5;
+        if (p.cuisinePrefer.length && (r.tags.cuisine || []).some(c => p.cuisinePrefer.includes(c))) score += 2;
+        if (r.tagsVerified) score += 1;
+        score += Math.random() * 0.5;
+        return { r, s: best.s, score };
+      }).sort((a, b) => b.score - a.score);
+      const top = scored[0];
+      if (!top) return;
+      const item = recipeSlotItem(top.r, top.s);
+      item._auto = true;
+      item._alts = scored.slice(1, 7).map(x => x.r.id);
+      day.meals[meal] = [item];
+      const u = usedOn.get(top.r.id) || []; u.push(di); usedOn.set(top.r.id, u);
+      placed++;
+    });
+  });
+
+  renderMealLog(); updateAnalysis();
+  if (note) note.textContent = placed
+    ? `Filled ${placed} meal${placed !== 1 ? 's' : ''} from ${eligible.length} compliant recipes.` +
+      (thinPools.length ? ` ⚠ No recipes tagged for ${thinPools.join('/')} — used the full compliant pool there.` : '')
+    : 'Nothing to fill — all selected meals already have foods.';
+  showToast(placed ? `Auto-filled ${placed} meals — review and swap below` : 'All selected meals already have foods');
+}
+
+// ── Swap picker ──
+function showSwapModal(meal, idx){
+  const item = mealLog[meal] && mealLog[meal][idx];
+  if (!item || !item.rref) return;
+  const p = planPrefs();
+  const eligible = eligibleRecipes(p);
+  const altIds = item._alts || [];
+  const alts = altIds.map(id => recipeById(id)).filter(Boolean);
+  const rest = eligible.filter(r => r.id !== item.rref.recipeId && !altIds.includes(r.id));
+  let modal = document.getElementById('swapModal');
+  if (!modal) {
+    modal = document.createElement('div');
+    modal.id = 'swapModal';
+    modal.className = 'kaana-modal-backdrop';
+    modal.onclick = e => { if (e.target === modal) modal.remove(); };
+    document.body.appendChild(modal);
+  }
+  const row = (r, label) => {
+    const ps = r._cache && r._cache.perServe || {};
+    return `<div class="swap-row" onclick="doSwap('${meal}',${idx},'${r.id}')">
+      <span class="lib-photo" style="width:34px;height:34px;font-size:17px;flex:none;border-radius:8px;" ${r.photoId?`data-photo="${r.photoId}"`:''}>${(r.tags.cuisine||[]).map(c=>CUISINE_EMOJI[c]).find(Boolean)||'🍽️'}</span>
+      <span style="flex:1;min-width:0;"><span style="display:block;font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">${r.name}</span>
+      <span style="font-size:9.5px;color:var(--text3);">${Math.round(ps.kcal||0)} kcal · ${(ps.prot||0).toFixed(1)}g prot/serve${label?' · '+label:''}</span></span>
+      <span style="font-size:11px;color:var(--accent);">⇄</span>
+    </div>`;
+  };
+  modal.innerHTML = `<div class="kaana-modal" style="max-height:78vh;overflow-y:auto;">
+    <div style="font-size:14px;font-weight:600;margin-bottom:8px;">Swap “${item.food.name}” — ${MEAL_NAMES[meal]}</div>
+    ${alts.length ? `<div style="font-size:9px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Suggested alternatives</div>` + alts.map(r=>row(r,'suggested')).join('') : ''}
+    ${rest.length ? `<div style="font-size:9px;font-weight:600;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;margin:10px 0 4px;">All compliant recipes</div>` + rest.slice(0,30).map(r=>row(r,'')).join('') : ''}
+    <button class="btn-secondary" style="width:100%;margin-top:12px;" onclick="document.getElementById('swapModal').remove()">Cancel</button>
+  </div>`;
+  hydratePhotos(modal);
+}
+
+function doSwap(meal, idx, recipeId){
+  const item = mealLog[meal] && mealLog[meal][idx];
+  const rec = recipeById(recipeId);
+  if (!item || !rec) return;
+  const swapped = recipeSlotItem(rec, item.rref ? item.rref.servings : 1);
+  swapped._auto = item._auto;
+  swapped._alts = (item._alts || []).filter(id => id !== recipeId).concat(item.rref ? [item.rref.recipeId] : []);
+  mealLog[meal][idx] = swapped;
+  const m = document.getElementById('swapModal'); if (m) m.remove();
+  renderMealLog(); updateAnalysis();
+  showToast('Swapped to ' + rec.name);
 }
 
 function initPlans(){
