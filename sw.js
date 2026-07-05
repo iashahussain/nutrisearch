@@ -1,5 +1,5 @@
 // NutriSearch service worker — bump CACHE on every deploy.
-const CACHE = 'nutrisearch-v17';
+const CACHE = 'nutrisearch-v18';
 const PRECACHE = ['./', './index.html', './manifest.json', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
