@@ -1037,6 +1037,11 @@
     border-radius: 10px; padding: 1px 7px; cursor: pointer; min-height: 0; white-space: nowrap;
   }
   .slot-add:hover { background: var(--accent); color: #fff; }
+  .slot-mode {
+    font-size: 9px; font-weight: 600; color: var(--text2); background: #fff; border: 1px solid var(--border);
+    border-radius: 10px; padding: 1px 7px; cursor: pointer; min-height: 0; white-space: nowrap;
+  }
+  .slot-mode:hover { border-color: var(--accent); color: var(--accent); }
   .slot-empty { font-size: 10px; color: var(--text3); font-style: italic; padding: 4px 12px; cursor: pointer; border-bottom: 1px solid var(--border); }
   .slot-empty:hover { background: var(--surface2); }
   /* Menu-template grid (cycle): meal · component row labels */
@@ -4666,13 +4671,20 @@ function renderMealLog() {
       const extras = [...new Set(withIdx.map(x => x.item.component).filter(c => c && !template.includes(c)))];
       const slots = template.concat(extras);
       const armed = ck => (armedMeal === meal && activeComponent === ck) ? ' armed' : '';
+      const dIdx = currentDayIdx == null ? 'null' : currentDayIdx;
       rows = slots.map(ckey => {
         const g = withIdx.filter(x => (x.item.component || null) === ckey);
-        const addBtn = `<button class="slot-add" onclick="event.stopPropagation();armSlot(${currentDayIdx==null?'null':currentDayIdx}, '${meal}', '${ckey}')" title="Add a choice to ${componentLabel(ckey)}">＋ choice</button>`;
-        const head = `<div class="comp-group-head${armed(ckey)}"><span>${componentLabel(ckey)}${g.length > 1 ? ` · ${g.length} choices` : ''}</span>${addBtn}</div>`;
+        const mode = slotMode(meal, ckey);
+        const isChoice = mode === 'choice';
+        const addLabel = isChoice ? '＋ choice' : '＋ item';
+        const addBtn = `<button class="slot-add" onclick="event.stopPropagation();armSlot(${dIdx}, '${meal}', '${ckey}')" title="Add to ${componentLabel(ckey)}">${addLabel}</button>`;
+        // toggle: only meaningful when a slot could hold more than one item
+        const modeBtn = `<button class="slot-mode" onclick="event.stopPropagation();toggleSlotMode('${meal}', '${ckey}')" title="${isChoice ? 'Items are alternatives — patient picks one. Click to make all-served.' : 'All items served together. Click to make them choices.'}">${isChoice ? '⇄ choice' : '＋ all served'}</button>`;
+        const countNote = g.length > 1 ? (isChoice ? ` · ${g.length} choices` : ` · ${g.length} served`) : '';
+        const head = `<div class="comp-group-head${armed(ckey)}"><span>${componentLabel(ckey)}${countNote}</span><span style="display:flex;gap:5px;">${modeBtn}${addBtn}</span></div>`;
         const body = g.length
-          ? g.map((x, ci) => rowHTML(x.item, x.idx, g.length > 1 ? ci + 1 : 0)).join('')
-          : `<div class="slot-empty" onclick="armSlot(${currentDayIdx==null?'null':currentDayIdx}, '${meal}', '${ckey}')">— empty — click ＋ choice, then search above</div>`;
+          ? g.map((x, ci) => rowHTML(x.item, x.idx, (isChoice && g.length > 1) ? ci + 1 : 0)).join('')
+          : `<div class="slot-empty" onclick="armSlot(${dIdx}, '${meal}', '${ckey}')">— empty — click ${addLabel}, then search above</div>`;
         return head + body;
       }).join('');
       // any items with an unknown/blank component
@@ -5400,6 +5412,23 @@ const MEAL_TEMPLATE = {
 function componentsForPeriod(period){ return (MEAL_TEMPLATE[period] || []).map(k => ({ key:k, label:COMPONENT_LABELS[k]||k })); }
 function componentLabel(key){ return COMPONENT_LABELS[key] || 'Other'; }
 function isCycle(){ return !!(currentPlan && currentPlan._entity === 'cycle'); }
+// A slot holds either alternative CHOICES (pick one) or ALL-included accompaniments (served together).
+// Spreads default to all-served (butter + jam + honey); everything else defaults to choices. Overridable per slot.
+const DEFAULT_COMPONENT_MODE = { spread:'all', snack_fruit:'all' };
+function slotMode(meal, comp){
+  const ov = currentPlan && currentPlan.slotModes;
+  if (ov && ov[meal + ':' + comp]) return ov[meal + ':' + comp];
+  return DEFAULT_COMPONENT_MODE[comp] || 'choice';
+}
+function setSlotMode(meal, comp, mode){
+  if (!currentPlan) return;
+  if (!currentPlan.slotModes) currentPlan.slotModes = {};
+  const def = DEFAULT_COMPONENT_MODE[comp] || 'choice';
+  if (mode === def) delete currentPlan.slotModes[meal + ':' + comp];   // don't store defaults
+  else currentPlan.slotModes[meal + ':' + comp] = mode;
+  renderMealLog(); renderPlanGrid(); autosavePlan();
+}
+function toggleSlotMode(meal, comp){ setSlotMode(meal, comp, slotMode(meal, comp) === 'choice' ? 'all' : 'choice'); }
 // The (meal, component) the cycle add flow is currently targeting.
 let activeComponent = null;
 let armedMeal = null;
@@ -5502,9 +5531,10 @@ function renderPlanGrid(){
       const slots = template.concat(extras);
       slots.forEach(ckey => {
         html += `<div class="pg-slot-label"><span class="pg-slot-meal">${MEAL_NAMES[meal]}</span><br>${componentLabel(ckey)}</div>`;
+        const sep = slotMode(meal, ckey) === 'all' ? ' + ' : ' / ';
         days.forEach((d, i) => {
           const g = (d.meals[meal]||[]).filter(it => (it.component||null) === ckey);
-          const names = g.map(it => it.food.name).join(' / ');
+          const names = g.map(it => it.food.name).join(sep);
           const body = g.length
             ? `<span class="pg-item" title="${names.replace(/"/g,'&quot;')}">${names}</span>`
             : '<span class="pg-empty">＋</span>';
