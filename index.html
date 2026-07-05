@@ -3582,6 +3582,8 @@ function switchView(view) {
   document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === view));
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
   document.getElementById('tab-' + v.tab).classList.add('active');
+  // Patient Targets belong to the planning views, not to Food Search / lookup
+  const targets = document.querySelector('.targets-bar'); if (targets) targets.style.display = (view === 'search') ? 'none' : '';
   if (view === 'planner' || view === 'record' || view === 'cycles') {
     panelMode = 'analysis';
     setPlannerMode(view === 'record' ? 'record' : view === 'cycles' ? 'cycle' : 'plan');
@@ -3766,8 +3768,7 @@ function selectFoodByIndex(i) {
   populateUnitSelect(document.getElementById('portionUnit'), food);
   updatePortionFromUnit();
 
-  // Show detail panel + full inspector (macros + minerals + vitamins) in the side panel
-  showFoodDetail(food);
+  // Full inspector (macros + minerals + vitamins) IS the food card here — no separate detail card
   panelMode = 'inspect';
   renderFoodInspector(food);
 }
@@ -3787,7 +3788,6 @@ function selectFood(codeOrName, db) {
   document.getElementById('portionAmt').value = 100;
   populateUnitSelect(document.getElementById('portionUnit'), food);
   updatePortionFromUnit();
-  showFoodDetail(food);
   panelMode = 'inspect';
   renderFoodInspector(food);
 }
@@ -3819,6 +3819,9 @@ function setEmptyState(mode){
 function renderFoodInspector(food){
   const empty = document.getElementById('emptyState');
   const summary = document.getElementById('macroSummary');
+  // In Food Search the inspector IS the food card — hide the separate detail card + patient targets
+  const detail = document.getElementById('foodDetail'); if (detail) detail.classList.remove('visible');
+  const targets = document.querySelector('.targets-bar'); if (targets) targets.style.display = 'none';
   if (!food){
     setEmptyState('inspect');
     if (empty) empty.style.display = 'flex';
