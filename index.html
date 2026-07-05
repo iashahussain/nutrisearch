@@ -960,6 +960,7 @@
   .pg-cell.selected-day { background: #fbfaf7; }
   .pg-cell.highlighted { border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-light); }
   .pg-item { font-size: 10px; color: var(--text2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; line-height: 1.35; }
+  .pg-comp-lbl { font-size: 8.5px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.3px; }
   .pg-item-more { font-size: 9px; color: var(--text3); font-style: italic; }
   .pg-cell-kcal { font-family: var(--font-num); font-size: 8.5px; color: var(--text3); margin-top: auto; padding-top: 2px; }
   .pg-empty { font-size: 9.5px; color: var(--text3); font-style: italic; }
@@ -1023,6 +1024,15 @@
   .frac-chips button:hover { border-color: var(--accent2); color: var(--accent); }
   .comp-chip {
     font-size: 9.5px; padding: 2px 7px; border-radius: 9px; font-family: var(--font-num); white-space: nowrap;
+  }
+  /* Menu-component grouping inside a cycle meal */
+  .comp-group-head {
+    font-size: 9.5px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.6px;
+    padding: 6px 10px 3px; background: var(--accent-light); border-top: 1px solid var(--border);
+  }
+  .choice-badge {
+    display: inline-block; min-width: 15px; text-align: center; font-family: var(--font-num); font-size: 9px; font-weight: 700;
+    color: #fff; background: var(--accent2); border-radius: 4px; padding: 0 4px; margin-right: 5px;
   }
   .comp-chip.ok   { background: var(--accent-light);  color: var(--accent); }
   .comp-chip.warn { background: var(--caution-light); color: #9a7d1e; }
@@ -1279,7 +1289,7 @@
               <optgroup label="Volume"><option value="ml">ml</option><option value="fl_oz">fl oz</option><option value="cup">cup (240ml)</option><option value="half_cup">½ cup</option><option value="tbsp">tbsp (15ml)</option><option value="tsp">tsp (5ml)</option></optgroup>
             </select>
             <span id="logPortionEquiv" style="font-family:var(--font-num);font-size:10px;color:var(--text3);"></span>
-            <select class="meal-select" id="logMealSelect" style="min-width:100px;font-size:11px;">
+            <select class="meal-select" id="logMealSelect" style="min-width:100px;font-size:11px;" onchange="onLogMealChange()">
               <option value="breakfast">Breakfast</option>
               <option value="morning_snack">Morning Tea</option>
               <option value="lunch" selected>Lunch</option>
@@ -1287,6 +1297,7 @@
               <option value="dinner">Dinner</option>
               <option value="evening_snack">Supper</option>
             </select>
+            <select class="meal-select" id="logComponentSelect" style="min-width:110px;font-size:11px;display:none;" title="Menu component this goes under (Choice 1/2 …)"></select>
             <button class="add-btn" onclick="addFromLogSearch()" style="white-space:nowrap;">+ Add</button>
             <button class="preset-btn" style="border-style:dashed;white-space:nowrap;" onclick="promptAddMeasure('log')">+ measure</button>
           </div>
@@ -4364,7 +4375,9 @@ function selectLogFood(i) {
     if (!rec) { showToast('Recipe not found'); return; }
     const meal = document.getElementById('logMealSelect').value;
     if (!mealLog[meal]) mealLog[meal] = [];
-    mealLog[meal].push(recipeSlotItem(rec, 1));
+    const slot = recipeSlotItem(rec, 1);
+    const comp = currentAddComponent(); if (comp) slot.component = comp;
+    mealLog[meal].push(slot);
     renderMealLog(); updateAnalysis();
     showToast(`Added ${rec.name} to ${MEAL_NAMES[meal]} — click it to change servings`);
     document.getElementById('logSearchInput').value = '';
@@ -4393,6 +4406,27 @@ function onLogPortionChange() {
   el.textContent = unit !== 'g' ? `≈ ${grams.toFixed(1)}g` : '';
 }
 
+// Cycle mode: keep the component dropdown in sync with the chosen meal period.
+function refreshComponentSelect(){
+  const sel = document.getElementById('logComponentSelect');
+  if (!sel) return;
+  if (!isCycle()) { sel.style.display = 'none'; return; }
+  const meal = document.getElementById('logMealSelect').value;
+  const comps = componentsForPeriod(meal);
+  const prev = sel.value;
+  sel.innerHTML = comps.map(c => `<option value="${c.key}">${c.label}</option>`).join('');
+  if (comps.some(c => c.key === prev)) sel.value = prev;
+  else if (comps.some(c => c.key === 'main')) sel.value = 'main';
+  sel.style.display = comps.length ? '' : 'none';
+  activeComponent = sel.value || null;
+}
+function onLogMealChange(){ refreshComponentSelect(); }
+function currentAddComponent(){
+  if (!isCycle()) return undefined;
+  const sel = document.getElementById('logComponentSelect');
+  return (sel && sel.value) || activeComponent || 'main';
+}
+
 function setLogPreset(amt, unit) {
   document.getElementById('logPortionAmt').value = amt;
   document.getElementById('logPortionUnit').value = unit;
@@ -4408,7 +4442,9 @@ function addFromLogSearch() {
   const portionLabel = unit === 'g' ? `${grams}g` : `${amt} ${unitLabel(logSelectedFood, amt, unit)} (${grams.toFixed(1)}g)`;
   const meal  = document.getElementById('logMealSelect').value;
   if (!mealLog[meal]) mealLog[meal] = [];
-  mealLog[meal].push({ food: logSelectedFood, grams, portionLabel });
+  const newItem = { food: logSelectedFood, grams, portionLabel };
+  const comp = currentAddComponent(); if (comp) newItem.component = comp;
+  mealLog[meal].push(newItem);
   renderMealLog();
   updateAnalysis();
   showToast(`Added ${logSelectedFood.name.substring(0,30)} to ${MEAL_NAMES[meal]}`);
@@ -4573,8 +4609,8 @@ function renderMealLog() {
       mealTotals[n.key] = items.reduce((s,i) => s + ((i.food[n.key]||0) * i.grams / 100), 0);
     });
 
-    // Food rows
-    const rows = items.map((item, idx) => {
+    // Food row builder (choiceNum > 0 shows a "Choice N" badge in cycle mode)
+    const rowHTML = (item, idx, choiceNum) => {
       const nutrcols = activeNutrients.map(n => {
         const val = (item.food[n.key]||0) * item.grams / 100;
         const disp = val < 10 ? val.toFixed(1) : Math.round(val);
@@ -4585,22 +4621,38 @@ function renderMealLog() {
       const swapBtn = item.rref
         ? `<button class="log-del" style="color:var(--accent);" title="Swap for another compliant recipe" onclick="event.stopPropagation();showSwapModal('${meal}',${idx})">⇄</button>`
         : '';
-      // Food Record: fraction chips to log partial consumption ("ate ½ of it")
       const fracChips = plannerMode === 'record'
         ? `<span class="frac-chips" onclick="event.stopPropagation()">` +
           [[0.25,'¼'],[0.5,'½'],[0.75,'¾'],[1,'all']].map(([f,l]) =>
             `<button onclick="scaleLogItem('${meal}',${idx},${f})" title="Patient ate ${l === 'all' ? 'all' : l} of this">${l}</button>`).join('') +
           `</span>`
         : '';
+      const choiceBadge = choiceNum ? `<span class="choice-badge">${choiceNum}</span>` : '';
       return `<div class="log-item" style="${gridStyle};cursor:pointer;" onclick="showLogItemDetail('${meal}',${idx})">
         <span class="db-tag tag-${item.food.db}" style="font-size:8px;justify-self:center;">${item.food.db.toUpperCase()}</span>
-        <span class="log-item-name" onmouseenter="showNameTip(event, this)" onmouseleave="hideNameTip()" data-fullname="${item.food.name.replace(/"/g,'&quot;')}">${item._auto ? '✨ ' : ''}${item.food.name}${swapBtn ? ' ' + swapBtn : ''}${fracChips}</span>
+        <span class="log-item-name" onmouseenter="showNameTip(event, this)" onmouseleave="hideNameTip()" data-fullname="${item.food.name.replace(/"/g,'&quot;')}">${choiceBadge}${item._auto ? '✨ ' : ''}${item.food.name}${swapBtn ? ' ' + swapBtn : ''}${fracChips}</span>
         <span class="log-item-portion">${item.portionLabel || item.grams+'g'}</span>
         ${nutrcols}
         <span class="log-item-kcal">${Math.round(item.food.kcal*item.grams/100)}</span>
         <button class="log-del" onclick="event.stopPropagation();removeLogItem('${meal}',${idx})">×</button>
       </div>`;
-    }).join('');
+    };
+
+    let rows;
+    if (isCycle()) {
+      // Group by menu component; items sharing a component are Choice 1 / 2 / …
+      const withIdx = items.map((item, idx) => ({ item, idx }));
+      const order = MENU_COMPONENT_ORDER.concat(['__other']);
+      rows = order.map(ckey => {
+        const g = withIdx.filter(x => (x.item.component || '__other') === ckey);
+        if (!g.length) return '';
+        const label = ckey === '__other' ? 'Uncategorised' : componentLabel(ckey);
+        const head = `<div class="comp-group-head">${label}${g.length > 1 ? ` · ${g.length} choices` : ''}</div>`;
+        return head + g.map((x, ci) => rowHTML(x.item, x.idx, g.length > 1 ? ci + 1 : 0)).join('');
+      }).join('');
+    } else {
+      rows = items.map((item, idx) => rowHTML(item, idx, 0)).join('');
+    }
 
     // Meal subtotal row
     const subtotalNutrCols = activeNutrients.map(n => {
@@ -4947,6 +4999,7 @@ function setPlannerMode(mode){
   renderPlanLoadSelect();
   renderDayStrip();
   renderMealLog();
+  refreshComponentSelect();
   updateAnalysis();
 }
 
@@ -5119,10 +5172,12 @@ function slimItem(it){
     const out = { name: f.name || it.name, grams: it.grams, portionLabel: it.portionLabel, rref: it.rref };
     if (it._auto) out.auto = true;
     if (it._alts && it._alts.length) out.alts = it._alts;
+    if (it.component) out.component = it.component;
     out.snap = {}; NUTRIENT_KEYS.forEach(k => out.snap[k] = parseFloat(f[k]) || 0);
     return out;
   }
   const out = { name: f.name, grams: it.grams, portionLabel: it.portionLabel };
+  if (it.component) out.component = it.component;
   const staticDb = ['ifct','afcd','ausnut','nz'].includes(f.db);
   if (staticDb && f.code) out.ref = { db: f.db, code: f.code };
   else {
@@ -5135,10 +5190,10 @@ function fattenItem(s){
   // recipe reference: rebuild fresh from the bank (recipe may have been edited)
   if (s.rref) {
     const rec = typeof recipeById === 'function' ? recipeById(s.rref.recipeId) : null;
-    if (rec) { const it = recipeSlotItem(rec, s.rref.servings); if (s.auto) it._auto = true; if (s.alts) it._alts = s.alts; return it; }
+    if (rec) { const it = recipeSlotItem(rec, s.rref.servings); if (s.auto) it._auto = true; if (s.alts) it._alts = s.alts; if (s.component) it.component = s.component; return it; }
     if (s.snap) {
       const food = Object.assign({ name: (s.name || 'Recipe') + ' (deleted recipe — saved values)', cat: 'Recipe', db: 'recipe', code: s.rref.recipeId }, s.snap);
-      return { food, grams: s.grams, portionLabel: s.portionLabel, rref: s.rref, _missing: true };
+      return { food, grams: s.grams, portionLabel: s.portionLabel, rref: s.rref, component: s.component, _missing: true };
     }
   }
   let food = null;
@@ -5149,7 +5204,7 @@ function fattenItem(s){
     food = Object.assign({ name: s.name || '(saved values)', cat: '(saved values)', db: 'custom' }, s.snap);
   }
   if (!food) { food = _zeroFood(s.name || '(missing food)'); }
-  return { food, grams: s.grams, portionLabel: s.portionLabel, _missing: !!food._unmatched };
+  return { food, grams: s.grams, portionLabel: s.portionLabel, component: s.component, _missing: !!food._unmatched };
 }
 
 function planToStorage(p){
@@ -5198,6 +5253,7 @@ function switchPlanDay(i){
   mealLog = currentPlan.days[i].meals;
   renderDayStrip();
   renderMealLog();
+  if (typeof refreshComponentSelect === 'function') refreshComponentSelect();
   updateAnalysis();
 }
 
@@ -5290,6 +5346,31 @@ function renderPlanLoadSelect(){
 const ALL_PERIODS = ['breakfast','morning_snack','lunch','afternoon_snack','dinner','evening_snack'];
 let highlightMeal = null;      // meal focused from a grid cell click
 let dayEditorOpen = true;
+
+// ── Menu components (hospital food-service): categories within a meal. Cycle items
+// carry `item.component`; items sharing a component in a meal are its Choice 1 / 2 / …
+// Plans & food records ignore components entirely (they stay flat additive item lists).
+const MENU_COMPONENTS = [
+  { key:'breakfast_item', label:'Breakfast item', periods:['breakfast'] },
+  { key:'soup',        label:'Soup',            periods:['lunch','dinner'] },
+  { key:'main',        label:'Main',            periods:['lunch','dinner'] },
+  { key:'starch_side', label:'Starch side',     periods:['lunch','dinner'] },
+  { key:'veg_side',    label:'Vegetable side',  periods:['lunch','dinner'] },
+  { key:'sandwich',    label:'Sandwich / wrap', periods:['lunch','morning_snack','afternoon_snack'] },
+  { key:'bread',       label:'Bread',           periods:['breakfast','lunch','dinner'] },
+  { key:'spreads',     label:'Spreads',         periods:['breakfast'] },
+  { key:'fruit',       label:'Fruit',           periods:['breakfast','lunch','dinner','morning_snack','afternoon_snack','evening_snack'] },
+  { key:'dessert',     label:'Dessert',         periods:['lunch','dinner'] },
+  { key:'snack',       label:'Snack',           periods:['morning_snack','afternoon_snack','evening_snack'] },
+  { key:'hot_bev',     label:'Hot beverage',    periods:ALL_PERIODS.slice() },
+  { key:'cold_bev',    label:'Cold beverage',   periods:ALL_PERIODS.slice() },
+];
+const MENU_COMPONENT_ORDER = MENU_COMPONENTS.map(c => c.key);
+function componentsForPeriod(period){ return MENU_COMPONENTS.filter(c => c.periods.includes(period)); }
+function componentLabel(key){ const c = MENU_COMPONENTS.find(x => x.key === key); return c ? c.label : 'Other'; }
+function isCycle(){ return !!(currentPlan && currentPlan._entity === 'cycle'); }
+// The component the cycle day-editor add flow will tag new items with.
+let activeComponent = null;
 
 function ensurePlanDefaults(plan){
   if (!plan) return plan;
@@ -5387,12 +5468,27 @@ function renderPlanGrid(){
     days.forEach((d, i) => {
       const items = d.meals[meal] || [];
       const kcal = Math.round(computeTotals(items).kcal);
-      const shown = items.slice(0, 3).map(it =>
-        `<span class="pg-item" title="${(it.food.name||'').replace(/"/g,'&quot;')}">${it.food.name}</span>`).join('');
-      const more = items.length > 3 ? `<span class="pg-item-more">+${items.length - 3} more</span>` : '';
+      let body;
+      if (isCycle()) {
+        // group by component; each component shows its choices "A / B"
+        const order = MENU_COMPONENT_ORDER.concat(['__other']);
+        const lines = order.map(ckey => {
+          const g = items.filter(it => (it.component || '__other') === ckey);
+          if (!g.length) return '';
+          const names = g.map(it => it.food.name).join(' / ');
+          const lbl = ckey === '__other' ? '' : `<span class="pg-comp-lbl">${componentLabel(ckey)}:</span> `;
+          return `<span class="pg-item" title="${names.replace(/"/g,'&quot;')}">${lbl}${names}</span>`;
+        }).filter(Boolean);
+        body = lines.length ? lines.join('') : '<span class="pg-empty">＋ add</span>';
+      } else {
+        const shown = items.slice(0, 3).map(it =>
+          `<span class="pg-item" title="${(it.food.name||'').replace(/"/g,'&quot;')}">${it.food.name}</span>`).join('');
+        const more = items.length > 3 ? `<span class="pg-item-more">+${items.length - 3} more</span>` : '';
+        body = items.length ? shown + more + `<span class="pg-cell-kcal">${kcal} kcal</span>` : '<span class="pg-empty">＋ add</span>';
+      }
       const hl = (i === currentDayIdx && meal === highlightMeal) ? 'highlighted' : '';
       html += `<div class="pg-cell ${i===currentDayIdx?'selected-day':''} ${hl}" onclick="planGridCellClick(${i}, '${meal}')">
-        ${items.length ? shown + more + `<span class="pg-cell-kcal">${kcal} kcal</span>` : '<span class="pg-empty">＋ add</span>'}
+        ${body}
       </div>`;
     });
     html += `<div></div>`;   // filler under the add-day column
@@ -5409,6 +5505,7 @@ function planGridCellClick(dayIdx, meal){
   switchPlanDay(dayIdx);
   const sel = document.getElementById('logMealSelect');
   if (sel) sel.value = meal;
+  if (typeof refreshComponentSelect === 'function') refreshComponentSelect();
   if (!dayEditorOpen) toggleDayEditor();
   const target = document.getElementById('mealsec-' + meal) || document.getElementById('dayEditorHeader');
   if (target) target.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
