@@ -1428,6 +1428,17 @@ Pour in coconut milk and simmer 10 minutes." style="width:100%;resize:vertical;f
     <!-- TAB 4: CUSTOM FOOD -->
     <div class="tab-content" id="tab-custom">
       <div class="custom-food-form">
+        <div class="form-section" id="ri_section">
+          <div class="form-section-title">Import recipes (from Claude, with photos)</div>
+          <div style="font-size:11px;color:var(--text3);margin:-4px 0 8px;">Ask Claude to <em>"import these recipes"</em> with recipe text/photos — paste the JSON it returns (kaana-recipe-import/1). Ingredients are matched to the databases automatically; everything lands unverified for your review.</div>
+          <textarea class="form-input" id="ri_paste" rows="3" placeholder='{"schema":"kaana-recipe-import/1","recipes":[...]}' style="width:100%;resize:vertical;font-family:var(--font-num);font-size:10px;"></textarea>
+          <div style="display:flex;gap:8px;margin-top:6px;">
+            <button class="btn-primary" style="flex:1;" onclick="importRecipesFromPaste()">Import recipes</button>
+            <button class="btn-secondary" style="flex:1;" onclick="document.getElementById('ri_file').click()">Choose file…</button>
+            <input id="ri_file" type="file" accept=".json,application/json" style="display:none;" onchange="importRecipesFromFile(this)">
+          </div>
+          <div id="ri_result" style="margin-top:8px;font-size:11px;color:var(--text2);"></div>
+        </div>
         <div class="form-section" id="fi_section">
           <div class="form-section-title">Import foods (label photos → Claude → here)</div>
           <div style="font-size:11px;color:var(--text3);margin:-4px 0 8px;">Photograph nutrition labels, ask Claude to <em>"import these labels"</em>, then paste the JSON it gives you below (or choose the file it saved).</div>
@@ -5478,10 +5489,39 @@ function syncPlanTargets(){
   });
 }
 
+// Unique recipes referenced by a plan/cycle/record (via rref slot items)
+function collectPlanRecipes(plan){
+  const ids = new Set();
+  plan.days.forEach(d => Object.values(d.meals).flat().forEach(it => { if (it.rref) ids.add(it.rref.recipeId); }));
+  return Array.from(ids).map(id => recipeById(id)).filter(Boolean);
+}
+
+function recipeAppendixHTML(plan){
+  const recs = collectPlanRecipes(plan);
+  if (!recs.length) return '';
+  const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  return `<div class="ps-summary" style="page-break-before:always;">
+    <div class="ps-summary-title" style="font-size:14px;">Recipes</div>
+    ${recs.map(r => {
+      const ps = r._cache && r._cache.perServe || {};
+      return `<div class="ps-day">
+        <div class="ps-day-title">${esc(r.name)} <span style="font-weight:400;font-size:10px;">— serves ${r.servings||1} · ${Math.round(ps.kcal||0)} kcal, ${(ps.prot||0).toFixed(1)} g protein per serve</span></div>
+        <table><tr><th style="width:50%;">Ingredients</th><th>Method</th></tr>
+        <tr><td>${r.items.map(it => esc(it.food.name) + ' — ' + it.grams + ' g').join('<br>')}</td>
+        <td>${(r.method||[]).length ? r.method.map((s,i) => (i+1) + '. ' + esc(s)).join('<br>') : '<span style="color:#888;">(no method recorded)</span>'}</td></tr></table>
+        ${r.notes ? `<div style="font-size:10px;color:#444;margin-top:3px;"><strong>Notes:</strong> ${esc(r.notes)}</div>` : ''}
+      </div>`;
+    }).join('')}
+  </div>`;
+}
+
 function printPlanHandout(){
   if (!currentPlan) { window.print(); return; }
   syncPlanTargets();
   buildPrintSheet(currentPlan);
+  // append the recipes used, each with ingredients + method
+  const el = document.getElementById('printSheet');
+  if (el) el.innerHTML += recipeAppendixHTML(currentPlan);
   window.print();
 }
 
@@ -5507,6 +5547,19 @@ function planToText(plan){
   const avg = _planAvgTotals(plan);
   lines.push(`## Daily average (${plan.days.length} day${plan.days.length>1?'s':''})`);
   lines.push(`Energy ${Math.round(avg.kcal)} kcal | Protein ${avg.prot.toFixed(1)} g | Fat ${avg.fat.toFixed(1)} g | CHO ${avg.cho.toFixed(1)} g | Fibre ${avg.fibre.toFixed(1)} g | Na ${Math.round(avg.na)} mg | Ca ${Math.round(avg.ca)} mg | Fe ${avg.fe.toFixed(1)} mg | K ${Math.round(avg.k)} mg`);
+  // recipe appendix — full ingredients + method for every recipe used in the plan
+  const recs = collectPlanRecipes(plan);
+  if (recs.length) {
+    lines.push('', '## Recipes');
+    recs.forEach(r => {
+      const ps = r._cache && r._cache.perServe || {};
+      lines.push('', `### ${r.name} (serves ${r.servings||1} — ${Math.round(ps.kcal||0)} kcal, ${(ps.prot||0).toFixed(1)} g protein per serve)`);
+      lines.push('Ingredients:');
+      r.items.forEach(it => lines.push(`- ${it.food.name} — ${it.grams} g`));
+      if ((r.method||[]).length) { lines.push('Method:'); r.method.forEach((s,i) => lines.push(`${i+1}. ${s}`)); }
+      if (r.notes) lines.push(`Notes: ${r.notes}`);
+    });
+  }
   return lines.join('\n');
 }
 
@@ -6844,6 +6897,96 @@ function showAddToPlanModal(recipeId){
       <button class="btn-secondary" onclick="document.getElementById('addPlanModal').remove()">Cancel</button>
     </div>
   </div>`;
+}
+
+// ════════════════════════════════════════════════
+// RECIPE IMPORT (kaana-recipe-import/1) — Claude-batch pipeline
+// ════════════════════════════════════════════════
+async function importRecipesFromText(text){
+  const out = document.getElementById('ri_result');
+  const say = msg => { if (out) out.innerHTML = msg; };
+  let parsed;
+  try { parsed = JSON.parse(text); } catch(e){ showToast('Invalid JSON'); return; }
+  const list = Array.isArray(parsed) ? parsed : parsed && Array.isArray(parsed.recipes) ? parsed.recipes : null;
+  if (!list) { showToast('Expected {"recipes":[...]}'); return; }
+  loadSavedRecipes();
+  const report = [];
+  let added = 0, skipped = 0;
+  for (const raw of list) {
+    if (!raw || !raw.name) { report.push('· skipped: entry without a name'); skipped++; continue; }
+    if (savedRecipes.some(x => (x.name||'').toLowerCase() === String(raw.name).toLowerCase()) ||
+        recipeBank().some(x => (x.name||'').toLowerCase() === String(raw.name).toLowerCase())) {
+      report.push(`· skipped duplicate: ${raw.name}`); skipped++; continue;
+    }
+    // items: pre-resolved refs OR free ingredients matched here
+    let items = [], lowConf = 0;
+    if (Array.isArray(raw.items) && raw.items.length) {
+      items = raw.items.map(fattenRecipeItem);
+    } else if (Array.isArray(raw.ingredients)) {
+      raw.ingredients.forEach(ing => {
+        const m = matchIngredientScored(ing.name || '');
+        const food = m.list[0] || _zeroFood(ing.name || '?');
+        if (m.conf < 0.4) lowConf++;
+        const qty = parseFloat(ing.qty) || 1;
+        const unit = (ing.unit || 'g').toLowerCase();
+        const info = _UNIT_LOOKUP[unit];
+        let grams;
+        if (info && !info.count) grams = qty * info.g;
+        else if (info && info.count) grams = resolveCountUnit(food, qty, unit).grams;
+        else grams = qty;   // assume grams
+        if (grams > 0) items.push({ food, grams: Math.round(grams * 10) / 10, portionLabel: Math.round(grams) + 'g', cookMethod: ing.cookMethod || '' });
+      });
+    }
+    if (!items.length) { report.push(`· skipped (no usable ingredients): ${raw.name}`); skipped++; continue; }
+    // photo (optional base64) → IndexedDB
+    let photoId = null;
+    if (raw.photo && raw.photo.b64) {
+      try {
+        const bin = atob(raw.photo.b64);
+        const arr = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        const blob0 = new Blob([arr], { type: raw.photo.mime || 'image/jpeg' });
+        const { blob, w, h, bytes } = await compressPhoto(new File([blob0], 'p.jpg', { type: blob0.type }));
+        photoId = 'ph_' + Date.now() + '_' + Math.random().toString(36).slice(2, 6);
+        await kaanaDB.put({ id: photoId, blob, w, h, bytes, created: new Date().toISOString() });
+      } catch(e){ report.push(`· photo failed for ${raw.name}`); }
+    }
+    const fat = {
+      id: 'R' + Date.now() + '_' + Math.random().toString(36).slice(2, 5),
+      v: 2, name: String(raw.name).trim(),
+      servings: Math.max(1, parseFloat(raw.servings) || 1),
+      servingSize: raw.servingSize || '', finishedWeight: parseFloat(raw.finishedWeight) || null,
+      items,
+      method: Array.isArray(raw.method) ? raw.method.map(String) : [],
+      notes: raw.notes || '',
+      tags: Object.assign(blankTags(), raw.tags || {}),
+      tagsVerified: false, itemsVerified: lowConf === 0,
+      photoId, source: 'import',
+      created: new Date().toISOString(), modified: new Date().toISOString(),
+    };
+    fat._cache = recipeCacheOf(fat);
+    savedRecipes.push(storageRecipe(fat));
+    added++;
+    report.push(`✓ ${fat.name} — ${items.length} ingredients${lowConf ? `, ⚠ ${lowConf} weak match(es), open it to review` : ''}${photoId ? ', 📷' : ''}`);
+  }
+  persistSavedRecipes();
+  invalidateRecipeBank();
+  renderSavedRecipes();
+  if (typeof renderLibrary === 'function') renderLibrary();
+  say(report.join('<br>'));
+  showToast(`Imported ${added} recipe${added !== 1 ? 's' : ''}${skipped ? ` · ${skipped} skipped` : ''}`);
+  const ta = document.getElementById('ri_paste'); if (ta) ta.value = '';
+}
+function importRecipesFromPaste(){
+  const t = document.getElementById('ri_paste').value.trim();
+  if (!t) { showToast('Paste import JSON first'); return; }
+  importRecipesFromText(t);
+}
+function importRecipesFromFile(input){
+  const file = input.files && input.files[0]; if (!file) return;
+  const reader = new FileReader();
+  reader.onload = e => importRecipesFromText(e.target.result);
+  reader.readAsText(file); input.value = '';
 }
 
 // ── One-time migration to schema v2 (auto-backup first) ──
