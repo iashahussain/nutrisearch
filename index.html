@@ -1328,6 +1328,7 @@
         <div style="font-family:var(--font-display);font-weight:600;font-size:22px;letter-spacing:-0.3px;margin-bottom:10px;">Recipe Library</div>
         <div style="display:flex;gap:8px;align-items:center;margin-bottom:8px;">
           <input class="field-input" id="libSearch" type="text" placeholder="Search recipes…" style="flex:1;" oninput="renderLibrary()">
+          <button class="btn-secondary" style="white-space:nowrap;" onclick="exportRecipeSheetCSV()" title="Download all recipes as a CSV for the kitchen / food-service team">⬇ Recipe sheet</button>
           <button class="btn-primary" style="white-space:nowrap;" onclick="clearRecipe();openRecipeBuilder()">＋ New recipe</button>
         </div>
         <div id="libFilters" style="display:flex;gap:4px;flex-wrap:wrap;"></div>
@@ -6904,6 +6905,52 @@ function recipeBank(){
 }
 function invalidateRecipeBank(){ _recipeBank = null; }
 function recipeById(id){ return recipeBank().find(r => r.id === id) || null; }
+
+// ── CSV helpers (food-service exports open straight in Excel) ──
+function csvCell(v){
+  const s = (v == null ? '' : String(v));
+  return /[",\n\r]/.test(s) ? '"' + s.replace(/"/g, '""') + '"' : s;
+}
+function downloadCSV(filename, rows){
+  const text = '﻿' + rows.map(r => r.map(csvCell).join(',')).join('\r\n');  // BOM so Excel reads UTF-8
+  const blob = new Blob([text], { type: 'text/csv;charset=utf-8;' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = filename;
+  document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+}
+function tagList(rec){
+  const t = rec.tags || {};
+  return [
+    (t.diets||[]).join('; '),
+    (t.allergens||[]).length ? 'contains ' + t.allergens.join('; ') : '',
+    t.iddsi ? 'IDDSI ' + t.iddsi : '',
+    (t.lifestyle||[]).join('; '),
+    (t.cuisine||[]).join('; '),
+  ].filter(Boolean).join(' | ');
+}
+
+// Master recipe sheet — one row per recipe, per-serve nutrients + ingredients + method. For the kitchen.
+function exportRecipeSheetCSV(){
+  const bank = recipeBank();
+  if (!bank.length) { showToast('No recipes to export yet'); return; }
+  const header = ['Recipe','Servings','Serving size','kcal/serve','Protein g','Fat g','Carb g','Fibre g','Sodium mg','Tags','Reviewed','Ingredients','Method'];
+  const rows = [header];
+  bank.forEach(r => {
+    const ps = (r._cache && r._cache.perServe) || {};
+    const ingredients = (r.items || []).map(it => `${it.food ? it.food.name : '?'} ${Math.round(it.grams||0)}g`).join('; ');
+    const method = (r.method || []).map((s,i) => `${i+1}. ${s}`).join(' ');
+    rows.push([
+      r.name || '', r.servings || 1, r.servingSize || '',
+      Math.round(ps.kcal||0), (ps.prot||0).toFixed(1), (ps.fat||0).toFixed(1), (ps.cho||0).toFixed(1), (ps.fibre||0).toFixed(1), Math.round(ps.na||0),
+      tagList(r), r.tagsVerified ? 'yes' : 'no', ingredients, method,
+    ]);
+  });
+  downloadCSV(`kaana-recipe-sheet-${todayStamp()}.csv`, rows);
+  showToast(`Recipe sheet exported — ${bank.length} recipes`);
+}
+function todayStamp(){ try { return new Date().toISOString().slice(0,10); } catch(e){ return 'export'; } }
 
 // A recipe placed into a plan/record slot: behaves as a plain {food, grams} item,
 // so computeTotals / analysis / print / export all work unchanged.
