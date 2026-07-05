@@ -1079,6 +1079,7 @@
     color: #fff; background: var(--accent2); border-radius: 4px; padding: 0 4px; margin-right: 5px;
   }
   .comp-chip.ok   { background: var(--accent-light);  color: var(--accent); }
+  .comp-chip.b2   { background: #eef1f6; color: #5a77ac; }
   .comp-chip.warn { background: var(--caution-light); color: #9a7d1e; }
   .comp-chip.off  { background: var(--warn-light);    color: var(--red); }
   /* The planner tab scrolls as ONE column — grid, editor and meal list share the
@@ -4751,10 +4752,13 @@ function renderMealLog() {
     const mealKcalPct = tgtMap.kcal
       ? `<span style="font-size:9px;opacity:0.75"> ${Math.round(mealKcal/(parseFloat(document.getElementById('tgt_kcal')?.value)||1)*100)}%</span>` : '';
 
+    // Meal-total standard (e.g. breakfast is judged as a whole, not per component)
+    const mealChip = (isCycle() && mealStandards()[meal])
+      ? bandChipHTML(representativeItems({ [meal]: items }), mealStandards()[meal]) : '';
     return `
       <div class="meal-section ${meal === highlightMeal ? 'highlighted-meal' : ''}" id="mealsec-${meal}">
         <div class="meal-section-header" style="padding:8px 10px 4px;margin-bottom:0;">
-          <span class="meal-section-title">${MEAL_NAMES[meal]}</span>
+          <span class="meal-section-title">${MEAL_NAMES[meal]}${mealChip}</span>
           <span class="meal-kcal">${Math.round(mealKcal)} kcal</span>
         </div>
         ${rows}
@@ -5189,21 +5193,27 @@ function showComponentStandardsModal(){
     modal.onclick = e => { if (e.target === modal) modal.remove(); };
     document.body.appendChild(modal);
   }
-  const cs = componentStandards();
-  const comps = Object.keys(COMPONENT_LABELS);
-  const rows = comps.map(comp => {
-    const std = cs[comp] || {};
-    const cells = CSTD_KEYS.map(k =>
-      `<td style="padding:2px 4px;"><input type="number" placeholder="—" value="${std[k] != null ? std[k] : ''}" style="width:60px;font-size:10px;padding:2px 3px;" onchange="updateComponentStd('${comp}','${k}',this.value)"></td>`
+  const bandCells = (scope, key, band) => {
+    const store = (scope === 'meal' ? mealStandards() : componentStandards())[key] || {};
+    const b = store[band] || {};
+    return CSTD_KEYS.map(m =>
+      `<td style="padding:2px 3px;"><input type="number" placeholder="—" value="${b[m] != null ? b[m] : ''}" style="width:46px;font-size:10px;padding:2px 3px;" onchange="updateBandStd('${scope}','${key}','${band}','${m}',this.value)"></td>`
     ).join('');
-    return `<tr><td style="white-space:nowrap;font-weight:600;padding:2px 6px 2px 0;">${componentLabel(comp)}</td>${cells}</tr>`;
-  }).join('');
-  modal.innerHTML = `<div class="kaana-modal" style="max-width:460px;max-height:84vh;overflow:auto;">
-    <div style="font-size:15px;font-weight:600;margin-bottom:2px;">Component standards <span style="font-weight:400;font-size:11px;color:var(--text3);">per serve</span></div>
-    <div style="font-size:10px;color:var(--text3);margin-bottom:8px;">Each menu choice is checked against these. Seeded from the Victorian NQFS tables (converted to kcal). Blank = no rule.</div>
+  };
+  const rowFor = (scope, key) => `<tr><td style="white-space:nowrap;font-weight:600;padding:2px 8px 2px 0;">${scope==='meal'?MEAL_NAMES[key]+' (total)':componentLabel(key)}</td>${bandCells(scope,key,'band1')}<td style="width:8px;"></td>${bandCells(scope,key,'band2')}</tr>`;
+  const compRows = Object.keys(COMPONENT_STANDARD_SEEDS).map(c => rowFor('component', c)).join('');
+  const mealRows = Object.keys(MEAL_STANDARD_SEEDS).map(m => rowFor('meal', m)).join('');
+  const headGroup = label => `<th colspan="3" style="text-align:center;padding:2px 4px;border-bottom:2px solid var(--border);">${label}</th>`;
+  const headMetrics = () => CSTD_KEYS.map(m=>`<th style="text-align:left;padding:2px 3px;font-weight:600;font-size:9px;">${CSTD_LABELS[m]}</th>`).join('');
+  modal.innerHTML = `<div class="kaana-modal" style="max-width:560px;max-height:84vh;overflow:auto;">
+    <div style="font-size:15px;font-weight:600;margin-bottom:2px;">Menu standards <span style="font-weight:400;font-size:11px;color:var(--text3);">per serve · two bands</span></div>
+    <div style="font-size:10px;color:var(--text3);margin-bottom:8px;">Band 1 = high protein, Band 2 = moderate (Victorian NQFS, converted to kcal). A choice meets whichever band it satisfies; below Band 2 = fails. Breakfast is judged on the meal total, not per component. Blank = no rule.</div>
     <table style="border-collapse:collapse;font-size:10px;">
-      <tr><th style="text-align:left;padding:2px 6px 4px 0;">Component</th>${CSTD_KEYS.map(k=>`<th style="text-align:left;padding:2px 4px;font-weight:600;">${CSTD_LABELS[k]}</th>`).join('')}</tr>
-      ${rows}
+      <tr><th></th>${headGroup('Band 1 (high protein)')}<th></th>${headGroup('Band 2 (moderate)')}</tr>
+      <tr><th style="text-align:left;">Component</th>${headMetrics()}<th></th>${headMetrics()}</tr>
+      ${mealRows}
+      <tr><td colspan="8" style="padding:4px 0 1px;font-size:9px;font-weight:700;color:var(--text3);text-transform:uppercase;letter-spacing:0.5px;">Per-component (per choice)</td></tr>
+      ${compRows}
     </table>
     <div style="display:flex;gap:8px;margin-top:12px;">
       <button class="btn-primary" style="flex:1;" onclick="document.getElementById('compStdModal').remove();renderMealLog();renderPlanGrid();">Done</button>
@@ -5513,61 +5523,83 @@ function toggleSlotMode(meal, comp){ setSlotMode(meal, comp, slotMode(meal, comp
 
 // ── Component nutrient standards (per serve), seeded from Victorian NQFS tables (kJ→kcal ÷4.184) ──
 const COMPONENT_STANDARD_SEEDS = {
-  hot_protein:  { kcalMin:167, protMin:10, naMax:600 },
-  cold_protein: { kcalMin:167, protMin:10, naMax:600 },
-  hot_cereal:   { kcalMin:167, protMin:5,  naMax:600 },
-  cold_cereal:  { kcalMin:167, protMin:5,  naMax:600 },
-  soup:         { kcalMin:96,  protMin:5,  naMax:600 },
-  main:         { kcalMin:167, protMin:15, naMax:600 },
-  starch_side:  { kcalMin:96,  protMin:3 },
-  veg_side:     { kcalMin:60 },
-  sandwich:     { kcalMin:191, protMin:8 },
-  dessert:      { kcalMin:120, protMin:4 },
-  snack:        { kcalMin:120, protMin:3 },
-  snack_fruit:  { kcalMin:120, protMin:3 },
-  // fruit / bread / spread / hot_bev / cold_bev: no nutrient minimum by default
+  // Two bands per component (Victorian NQFS): Band 1 = high protein, Band 2 = moderate.
+  // Breakfast sub-components / bread / spread / fruit / beverages have NO per-serve standard —
+  // breakfast is judged on the MEAL total instead (see MEAL_STANDARD_SEEDS).
+  soup:        { band1:{ kcalMin:143, protMin:8,  naMax:600 }, band2:{ kcalMin:96,  protMin:5,  naMax:600 } },
+  main:        { band1:{ kcalMin:167, protMin:20, naMax:600 }, band2:{ kcalMin:167, protMin:15, naMax:600 } },
+  sandwich:    { band1:{ kcalMin:299, protMin:15 },            band2:{ kcalMin:191, protMin:8 } },
+  dessert:     { band1:{ kcalMin:191, protMin:5 },             band2:{ kcalMin:120, protMin:4 } },
+  starch_side: { band1:{ kcalMin:96,  protMin:3 },             band2:{} },
+  veg_side:    { band1:{ kcalMin:60 },                         band2:{} },
+  snack:       { band1:{ kcalMin:120, protMin:5 },             band2:{ kcalMin:120 } },
+  snack_fruit: { band1:{ kcalMin:120, protMin:5 },             band2:{ kcalMin:120 } },
+};
+// Meal-total standards (the whole meal's representative serve). Breakfast is judged here, not per-component.
+const MEAL_STANDARD_SEEDS = {
+  breakfast: { band1:{ kcalMin:400, protMin:15, naMax:900 }, band2:{ kcalMin:300, protMin:10, naMax:900 } },
 };
 const CSTD_KEYS = ['kcalMin','protMin','naMax'];
-const CSTD_LABELS = { kcalMin:'Energy ≥ (kcal)', protMin:'Protein ≥ (g)', naMax:'Sodium ≤ (mg)' };
-let _componentStandards = null;
+const CSTD_LABELS = { kcalMin:'kcal ≥', protMin:'Prot ≥ g', naMax:'Na ≤ mg' };
+let _componentStandards = null, _mealStandards = null;
 function componentStandards(){
   if (_componentStandards) return _componentStandards;
   let saved = {};
   try { saved = JSON.parse(localStorage.getItem('ns_component_standards')) || {}; } catch(e){}
+  // Drop any legacy single-band saved entries (pre-v29) so the new two-band seeds apply
+  Object.keys(saved).forEach(k => { const v = saved[k]; if (!v || (!v.band1 && !v.band2)) delete saved[k]; });
   _componentStandards = Object.assign({}, JSON.parse(JSON.stringify(COMPONENT_STANDARD_SEEDS)), saved);
   return _componentStandards;
 }
+function mealStandards(){
+  if (_mealStandards) return _mealStandards;
+  let saved = {};
+  try { saved = JSON.parse(localStorage.getItem('ns_meal_standards')) || {}; } catch(e){}
+  _mealStandards = Object.assign({}, JSON.parse(JSON.stringify(MEAL_STANDARD_SEEDS)), saved);
+  return _mealStandards;
+}
 function saveComponentStandards(){ try { localStorage.setItem('ns_component_standards', JSON.stringify(_componentStandards||{})); } catch(e){} }
-function updateComponentStd(comp, key, value){
-  const cs = componentStandards();
-  cs[comp] = cs[comp] || {};
+function saveMealStandards(){ try { localStorage.setItem('ns_meal_standards', JSON.stringify(_mealStandards||{})); } catch(e){} }
+function updateBandStd(scope, key, band, metric, value){
+  const store = scope === 'meal' ? mealStandards() : componentStandards();
+  store[key] = store[key] || {}; store[key][band] = store[key][band] || {};
   const v = parseFloat(value);
-  if (isNaN(v)) delete cs[comp][key]; else cs[comp][key] = v;
-  saveComponentStandards();
+  if (isNaN(v)) delete store[key][band][metric]; else store[key][band][metric] = v;
+  if (scope === 'meal') saveMealStandards(); else saveComponentStandards();
   renderMealLog(); renderPlanGrid();
 }
 
-// Evaluate a slot's serve (its items summed) against the component standard → {status, notes}.
-function componentStatusFor(items, comp){
-  const std = componentStandards()[comp];
+// Does a serve's totals meet a single band's mins/maxes? (empty band = always meets)
+function meetsBand(t, band){
+  if (!band) return false;
+  if (band.kcalMin != null && t.kcal < band.kcalMin) return false;
+  if (band.protMin != null && t.prot < band.protMin) return false;
+  if (band.naMax  != null && t.na  > band.naMax)  return false;
+  return true;
+}
+function bandNote(band){
+  if (!band) return '';
+  return [band.kcalMin?'≥'+band.kcalMin+' kcal':'', band.protMin?'≥'+band.protMin+' g P':'', band.naMax?'≤'+band.naMax+' mg Na':''].filter(Boolean).join(', ');
+}
+// Evaluate items against a two-band standard → { band:'band1'|'band2'|'fail', t } or null if no standard.
+function bandStatusFor(items, std){
   if (!std || !items || !items.length) return null;
+  const hasAny = (std.band1 && Object.keys(std.band1).length) || (std.band2 && Object.keys(std.band2).length);
+  if (!hasAny) return null;
   const t = computeTotals(items);
-  const checks = [];
-  if (std.kcalMin != null) checks.push({ ok: t.kcal >= std.kcalMin, warn: t.kcal >= std.kcalMin*0.9, label:`energy ${Math.round(t.kcal)} / ≥${std.kcalMin} kcal` });
-  if (std.protMin != null) checks.push({ ok: t.prot >= std.protMin, warn: t.prot >= std.protMin*0.9, label:`protein ${t.prot.toFixed(1)} / ≥${std.protMin} g` });
-  if (std.naMax  != null) checks.push({ ok: t.na <= std.naMax,  warn: t.na <= std.naMax*1.1,  label:`sodium ${Math.round(t.na)} / ≤${std.naMax} mg` });
-  if (!checks.length) return null;
-  const fail = checks.some(c => !c.warn);
-  const warn = !fail && checks.some(c => !c.ok);
-  return { status: fail ? 'fail' : warn ? 'warn' : 'pass', notes: checks.map(c=>c.label).join(' · ') };
+  const band = meetsBand(t, std.band1) ? 'band1' : meetsBand(t, std.band2) ? 'band2' : 'fail';
+  return { band, t };
 }
-function compChipHTML(items, comp){
-  const s = componentStatusFor(items, comp);
+function componentStatusFor(items, comp){ return bandStatusFor(items, componentStandards()[comp]); }
+function bandChipHTML(items, std){
+  const s = bandStatusFor(items, std);
   if (!s) return '';
-  const cls = s.status === 'fail' ? 'off' : s.status === 'warn' ? 'warn' : 'ok';
-  const icon = s.status === 'fail' ? '✗' : s.status === 'warn' ? '△' : '✓';
-  return `<span class="comp-chip ${cls}" style="font-size:8.5px;padding:1px 6px;margin-left:6px;" title="Component standard — ${s.notes}">${icon}</span>`;
+  const info = s.band === 'band1' ? ['ok','B1', 'Meets Band 1 (high protein) — '+bandNote(std.band1)]
+             : s.band === 'band2' ? ['b2','B2', 'Meets Band 2 (moderate) — '+bandNote(std.band2)]
+             : ['off','✗', 'Below standard — needs '+bandNote(std.band2 && Object.keys(std.band2).length ? std.band2 : std.band1)];
+  return `<span class="comp-chip ${info[0]}" style="font-size:8.5px;padding:1px 6px;margin-left:6px;" title="${info[2]} (${Math.round(s.t.kcal)} kcal, ${s.t.prot.toFixed(1)} g P)">${info[1]}</span>`;
 }
+function compChipHTML(items, comp){ return bandChipHTML(items, componentStandards()[comp]); }
 
 // A "representative day" = what one patient actually eats: one choice per choice-slot + all-served items.
 function representativeItems(meals){
@@ -6108,7 +6140,7 @@ function menuGridHTML(cycle, dc, audience){
         const cell = choices.map(it => {
           if (staff){
             const s = componentStatusFor([it], ckey);
-            const mark = s ? (s.status==='fail'?' <b>✗</b>':s.status==='warn'?' △':' ✓') : '';
+            const mark = s ? (s.band==='fail'?' <b>✗</b>':s.band==='band2'?' ✓²':' ✓¹') : '';
             const kc = Math.round((it.food.kcal||0)*it.grams/100);
             const pr = ((it.food.prot||0)*it.grams/100).toFixed(1);
             return `${esc(it.food.name)} <span style="color:#666;">(${kc} kcal, ${pr} g P)</span>${mark}`;
@@ -6143,7 +6175,7 @@ function buildMenuSheet(cycle, audience){
       ${dc&&dc.notes?`<div style="font-size:10px;color:#444;margin-top:4px;"><strong>Note:</strong> ${esc(dc.notes)}</div>`:''}
     </div>
     ${menuGridHTML(cycle, dc, audience)}
-    ${staff ? '<div style="font-size:9px;color:#666;margin-top:6px;">✓ meets component standard · △ borderline · ✗ below standard (per serve).</div>'
+    ${staff ? '<div style="font-size:9px;color:#666;margin-top:6px;">✓¹ meets Band 1 (high protein) · ✓² meets Band 2 (moderate) · ✗ below standard (per serve).</div>'
             : '<div style="font-size:10px;color:#444;margin-top:8px;">Please tick one choice per row for each day and hand back to ward staff.</div>'}
     <div class="ps-footer">Generated with Kaana · ${today}</div>`;
 }
@@ -6182,9 +6214,10 @@ function exportComplianceCSV(){
       (d.meals[meal]||[]).forEach(it => { const k=it.component||'__u'; (byComp[k]=byComp[k]||[]).push(it); });
       Object.keys(byComp).forEach(ckey => {
         const g = byComp[ckey], mode = slotMode(meal,ckey), std = componentStandards()[ckey];
-        const stdStr = std ? [std.kcalMin?'≥'+std.kcalMin+' kcal':'', std.protMin?'≥'+std.protMin+' g P':'', std.naMax?'≤'+std.naMax+' mg Na':''].filter(Boolean).join(', ') : '';
+        const stdStr = std ? ('B1: '+bandNote(std.band1) + (std.band2 && Object.keys(std.band2).length ? ' | B2: '+bandNote(std.band2) : '')) : '';
         const emit = (items,label) => { const t=computeTotals(items); const s=componentStatusFor(items,ckey);
-          rows.push([d.label, MEAL_NAMES[meal], componentLabel(ckey), mode==='all'?'all served':'choice', label, Math.round(t.kcal), t.prot.toFixed(1), Math.round(t.na), stdStr, s?s.status:'—']); };
+          const res = s ? (s.band==='band1'?'Band 1':s.band==='band2'?'Band 2':'below standard') : '—';
+          rows.push([d.label, MEAL_NAMES[meal], componentLabel(ckey), mode==='all'?'all served':'choice', label, Math.round(t.kcal), t.prot.toFixed(1), Math.round(t.na), stdStr, res]); };
         if (mode==='all') emit(g,'all served'); else g.forEach((it,ci)=>emit([it],'Choice '+(ci+1)));
       });
     });
@@ -8158,7 +8191,7 @@ function nsSave(key, obj) {
   catch(e) { showToast('Storage full — export a backup, then delete old plans or recipes'); return false; }
 }
 
-const NS_BACKUP_KEYS = ['ns_custom_foods','ns_recipes','ns_user_measures','ns_plans','ns_settings','ns_seeded_codes','ns_diet_codes','ns_cycles','ns_records','ns_ingredient_learned','ns_component_standards'];
+const NS_BACKUP_KEYS = ['ns_custom_foods','ns_recipes','ns_user_measures','ns_plans','ns_settings','ns_seeded_codes','ns_diet_codes','ns_cycles','ns_records','ns_ingredient_learned','ns_component_standards','ns_meal_standards'];
 
 async function backupExport() {
   const data = {};
