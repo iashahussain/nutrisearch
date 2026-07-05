@@ -922,6 +922,10 @@
     #printSheet .ps-summary { margin-top: 14px; page-break-inside: avoid; }
     #printSheet .ps-summary-title { font-size: 12px; font-weight: 700; margin-bottom: 5px; }
     #printSheet .ps-footer { margin-top: 18px; font-size: 10px; color: #666; border-top: 1px solid #ccc; padding-top: 6px; }
+    #printSheet .ps-menu-table { font-size: 9px; }
+    #printSheet .ps-menu-table th, #printSheet .ps-menu-table td { padding: 3px 5px; }
+    #printSheet .ps-menu-table .ps-slot { background: #eef1f6; white-space: nowrap; width: 110px; }
+    @page { size: landscape; margin: 10mm; }
   }
 
   /* ── PLAN GRID (meal periods × days) ── */
@@ -1288,6 +1292,15 @@
           <select class="field-input" id="dietCodeSelect" style="font-size:11px;max-width:220px;" onchange="if(currentPlan){currentPlan.dietCodeId=this.value;autosavePlan();renderComplianceBar();renderPlanGrid();}"></select>
           <button class="btn-secondary" style="font-size:10px;padding:4px 9px;" onclick="showDietCodesModal()" title="Per-day diet-code rules">⚙ Diet standards</button>
           <button class="btn-secondary" style="font-size:10px;padding:4px 9px;" onclick="showComponentStandardsModal()" title="Per-serve standards for each menu component (soup, main, dessert…)">⚙ Component standards</button>
+          <details class="pg-menu" style="position:relative;">
+            <summary class="btn-secondary" style="font-size:10px;padding:4px 9px;list-style:none;cursor:pointer;">🖨 Menus &amp; exports ▾</summary>
+            <div class="pg-menu-items" style="left:0;right:auto;min-width:190px;">
+              <button onclick="this.closest('details').open=false;printMenuMaster()">🖨 Master menu (staff)</button>
+              <button onclick="this.closest('details').open=false;printMenuPatient()">🖨 Patient order menu</button>
+              <button onclick="this.closest('details').open=false;exportComplianceCSV()">⬇ Compliance report (CSV)</button>
+              <button onclick="this.closest('details').open=false;exportCycleCSV()">⬇ Menu cycle (CSV)</button>
+            </div>
+          </details>
         </div>
         <div id="complianceBar" style="display:none;margin-top:8px;"></div>
         <div id="periodChecks" style="display:flex;gap:5px;flex-wrap:wrap;margin-top:9px;align-items:center;"></div>
@@ -6063,6 +6076,121 @@ function recipeAppendixHTML(plan){
       </div>`;
     }).join('')}
   </div>`;
+}
+
+// ── Menu-cycle outputs: master menu (staff) + patient order menu + CSV exports ──
+function isChoiceEligible(item, textureMax){
+  if (textureMax == null) return true;
+  if (item.rref){
+    const r = recipeById(item.rref.recipeId);
+    const rank = TEXTURE_RANK[(r && r.tags && r.tags.texture) || 'regular'];
+    return (rank == null ? 5 : rank) <= textureMax;
+  }
+  return true;   // plain foods carry no texture data — leave to the dietitian's curation
+}
+function menuGridHTML(cycle, dc, audience){
+  const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const days = cycle.days;
+  const periods = ALL_PERIODS.filter(m => (cycle.mealPeriods||ALL_PERIODS).includes(m));
+  const staff = audience === 'staff';
+  const textureMax = dc ? dc.textureMax : null;
+  let html = `<table class="ps-menu-table"><thead><tr><th>Meal / component</th>${days.map(d=>`<th>${esc(d.label)}</th>`).join('')}</tr></thead><tbody>`;
+  periods.forEach(meal => {
+    const template = MEAL_TEMPLATE[meal] || [];
+    const extras = [...new Set(days.flatMap(d => (d.meals[meal]||[]).map(it=>it.component).filter(c=>c&&!template.includes(c))))];
+    (template.concat(extras)).forEach(ckey => {
+      const hasContent = days.some(d => (d.meals[meal]||[]).some(it => (it.component||null)===ckey && (staff || isChoiceEligible(it, textureMax))));
+      if (!staff && !hasContent) return;   // patient menu hides empty slots
+      html += `<tr><th class="ps-slot">${MEAL_NAMES[meal]}<br><span style="font-weight:400;color:#666;">${componentLabel(ckey)}</span></th>`;
+      days.forEach(d => {
+        let choices = (d.meals[meal]||[]).filter(it => (it.component||null)===ckey);
+        if (!staff) choices = choices.filter(it => isChoiceEligible(it, textureMax));
+        const cell = choices.map(it => {
+          if (staff){
+            const s = componentStatusFor([it], ckey);
+            const mark = s ? (s.status==='fail'?' <b>✗</b>':s.status==='warn'?' △':' ✓') : '';
+            const kc = Math.round((it.food.kcal||0)*it.grams/100);
+            const pr = ((it.food.prot||0)*it.grams/100).toFixed(1);
+            return `${esc(it.food.name)} <span style="color:#666;">(${kc} kcal, ${pr} g P)</span>${mark}`;
+          }
+          return `☐ ${esc(it.food.name)}`;
+        }).join('<br>');
+        html += `<td>${cell || '<span style="color:#bbb;">—</span>'}</td>`;
+      });
+      html += `</tr>`;
+    });
+  });
+  return html + `</tbody></table>`;
+}
+function buildMenuSheet(cycle, audience){
+  let el = document.getElementById('printSheet');
+  if (!el) { el = document.createElement('div'); el.id='printSheet'; document.body.appendChild(el); }
+  const esc = s => String(s||'').replace(/&/g,'&amp;').replace(/</g,'&lt;');
+  const dc = dietCodes().find(d => d.id === cycle.dietCodeId) || null;
+  const today = new Date().toLocaleDateString('en-GB',{day:'numeric',month:'long',year:'numeric'});
+  const staff = audience === 'staff';
+  el.innerHTML = `
+    <div class="ps-header">
+      <div class="ps-hospital">Tree Top Hospital</div>
+      <div class="ps-title">${staff ? 'Master Menu' : 'Patient Menu'}${cycle.name?' — '+esc(cycle.name):''}</div>
+      <div class="ps-meta">
+        ${dc?`<span><strong>Diet code:</strong> ${esc(dc.name)}</span>`:''}
+        <span><strong>Days:</strong> ${cycle.days.length}</span>
+        <span><strong>Date:</strong> ${today}</span>
+        ${staff ? '<span><strong>Dietitian:</strong> Aminath Iasha, APD</span>'
+                : '<span><strong>Ward / Bed:</strong> _________</span><span><strong>Name:</strong> _________</span>'}
+      </div>
+      ${dc&&dc.notes?`<div style="font-size:10px;color:#444;margin-top:4px;"><strong>Note:</strong> ${esc(dc.notes)}</div>`:''}
+    </div>
+    ${menuGridHTML(cycle, dc, audience)}
+    ${staff ? '<div style="font-size:9px;color:#666;margin-top:6px;">✓ meets component standard · △ borderline · ✗ below standard (per serve).</div>'
+            : '<div style="font-size:10px;color:#444;margin-top:8px;">Please tick one choice per row for each day and hand back to ward staff.</div>'}
+    <div class="ps-footer">Generated with Kaana · ${today}</div>`;
+}
+function printMenuMaster(){ if(!isCycle()){showToast('Open a menu cycle first');return;} buildMenuSheet(currentPlan,'staff'); window.print(); }
+function printMenuPatient(){ if(!isCycle()){showToast('Open a menu cycle first');return;} buildMenuSheet(currentPlan,'patient'); window.print(); }
+
+function exportCycleCSV(){
+  if(!isCycle()){ showToast('Open a menu cycle first'); return; }
+  const c = currentPlan, days = c.days;
+  const rows = [['Meal','Component','Mode','Choice'].concat(days.map(d=>d.label))];
+  const periods = ALL_PERIODS.filter(m => (c.mealPeriods||ALL_PERIODS).includes(m));
+  periods.forEach(meal => {
+    const template = MEAL_TEMPLATE[meal]||[];
+    const extras = [...new Set(days.flatMap(d=>(d.meals[meal]||[]).map(it=>it.component).filter(x=>x&&!template.includes(x))))];
+    (template.concat(extras)).forEach(ckey => {
+      const mode = slotMode(meal,ckey);
+      const maxN = Math.max(1, ...days.map(d => (d.meals[meal]||[]).filter(it=>(it.component||null)===ckey).length));
+      for(let ci=0; ci<maxN; ci++){
+        const row = [MEAL_NAMES[meal], componentLabel(ckey), mode==='all'?'all served':'choice', 'Choice '+(ci+1)];
+        days.forEach(d => { const g=(d.meals[meal]||[]).filter(it=>(it.component||null)===ckey); row.push(g[ci]?g[ci].food.name:''); });
+        rows.push(row);
+      }
+    });
+  });
+  downloadCSV(`kaana-menu-${(c.name||'cycle').replace(/\W+/g,'-')}-${todayStamp()}.csv`, rows);
+  showToast('Menu cycle exported (CSV)');
+}
+function exportComplianceCSV(){
+  if(!isCycle()){ showToast('Open a menu cycle first'); return; }
+  const c = currentPlan;
+  const rows = [['Day','Meal','Component','Mode','Choice','kcal/serve','Protein g','Sodium mg','Component standard','Result']];
+  const periods = ALL_PERIODS.filter(m => (c.mealPeriods||ALL_PERIODS).includes(m));
+  c.days.forEach(d => {
+    periods.forEach(meal => {
+      const byComp = {};
+      (d.meals[meal]||[]).forEach(it => { const k=it.component||'__u'; (byComp[k]=byComp[k]||[]).push(it); });
+      Object.keys(byComp).forEach(ckey => {
+        const g = byComp[ckey], mode = slotMode(meal,ckey), std = componentStandards()[ckey];
+        const stdStr = std ? [std.kcalMin?'≥'+std.kcalMin+' kcal':'', std.protMin?'≥'+std.protMin+' g P':'', std.naMax?'≤'+std.naMax+' mg Na':''].filter(Boolean).join(', ') : '';
+        const emit = (items,label) => { const t=computeTotals(items); const s=componentStatusFor(items,ckey);
+          rows.push([d.label, MEAL_NAMES[meal], componentLabel(ckey), mode==='all'?'all served':'choice', label, Math.round(t.kcal), t.prot.toFixed(1), Math.round(t.na), stdStr, s?s.status:'—']); };
+        if (mode==='all') emit(g,'all served'); else g.forEach((it,ci)=>emit([it],'Choice '+(ci+1)));
+      });
+    });
+  });
+  downloadCSV(`kaana-compliance-${(c.name||'cycle').replace(/\W+/g,'-')}-${todayStamp()}.csv`, rows);
+  showToast('Compliance report exported (CSV)');
 }
 
 function printPlanHandout(){
