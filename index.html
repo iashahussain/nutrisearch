@@ -3492,6 +3492,7 @@ function applyReference(i) {
   }
 }
 let selectedFood = null;  // currently previewed food
+let panelMode = 'analysis';  // 'analysis' (plan/day totals) | 'inspect' (single food in Food Search)
 let activeDBs = new Set(['ifct','afcd','ausnut','usda','custom']);
 let searchTimer = null;
 let usdaCache = {};
@@ -3529,8 +3530,16 @@ function switchView(view) {
   document.querySelectorAll('.nav-item').forEach(b => b.classList.toggle('active', b.dataset.view === view));
   document.querySelectorAll('.tab-content').forEach(t => t.classList.remove('active'));
   document.getElementById('tab-' + v.tab).classList.add('active');
-  if (view === 'planner' || view === 'record' || view === 'cycles')
+  if (view === 'planner' || view === 'record' || view === 'cycles') {
+    panelMode = 'analysis';
     setPlannerMode(view === 'record' ? 'record' : view === 'cycles' ? 'cycle' : 'plan');
+    setEmptyState('analysis');
+    updateAnalysis();
+  } else if (view === 'search') {
+    // Side panel becomes a food inspector — show the last-picked food, or a prompt
+    panelMode = 'inspect';
+    renderFoodInspector(selectedFood || null);
+  }
 }
 
 // Legacy wrapper — a few code paths still call switchTab by tab name.
@@ -3705,8 +3714,10 @@ function selectFoodByIndex(i) {
   populateUnitSelect(document.getElementById('portionUnit'), food);
   updatePortionFromUnit();
 
-  // Show detail panel
+  // Show detail panel + full inspector (macros + minerals + vitamins) in the side panel
   showFoodDetail(food);
+  panelMode = 'inspect';
+  renderFoodInspector(food);
 }
 
 // Keep old selectFood as fallback
@@ -3725,6 +3736,8 @@ function selectFood(codeOrName, db) {
   populateUnitSelect(document.getElementById('portionUnit'), food);
   updatePortionFromUnit();
   showFoodDetail(food);
+  panelMode = 'inspect';
+  renderFoodInspector(food);
 }
 
 function showFoodDetail(food) {
@@ -3738,6 +3751,53 @@ function showFoodDetail(food) {
     {label:'Fibre',   val:`${food.fibre}g`},
   ].map(m=>`<div class="detail-macro"><div class="detail-macro-val">${m.val}</div><div class="detail-macro-name">${m.label}</div></div>`).join('');
   document.getElementById('foodDetail').classList.add('visible');
+}
+
+// Swap the empty-state message between plan-analysis and food-inspector contexts.
+function setEmptyState(mode){
+  const es = document.getElementById('emptyState');
+  if (!es) return;
+  es.innerHTML = mode === 'inspect'
+    ? `<div class="empty-state-icon" style="font-size:36px;">🔍</div><h3 style="font-size:16px;">Food inspector</h3><p style="font-size:12px;">Click a food in the results to see its full per-100&nbsp;g nutrients — macros, minerals &amp; vitamins.</p>`
+    : `<div class="empty-state-icon" style="font-size:36px;">🥗</div><h3 style="font-size:16px;">No foods logged yet</h3><p style="font-size:12px;">Add foods from the meal log to see nutrient analysis.</p>`;
+}
+
+// Food Search side panel: show ONE food's full per-100g breakdown (macros + minerals + vitamins),
+// reusing the same tables the plan analysis uses. Pass null to show the inspector prompt.
+function renderFoodInspector(food){
+  const empty = document.getElementById('emptyState');
+  const summary = document.getElementById('macroSummary');
+  if (!food){
+    setEmptyState('inspect');
+    if (empty) empty.style.display = 'flex';
+    if (summary) summary.style.display = 'none';
+    return;
+  }
+  if (empty) empty.style.display = 'none';
+  if (summary) summary.style.display = 'block';
+  const seg = document.querySelector('.scope-seg'); if (seg) seg.style.display = 'none';
+  const titleEl = document.getElementById('analysisTitle'); if (titleEl) titleEl.textContent = food.name;
+  document.getElementById('rightSub').textContent = `${food.cat ? food.cat + ' · ' : ''}${(food.db||'').toUpperCase()} · per 100 g`;
+
+  const macros = [
+    {name:'Energy',  val:Math.round(food.kcal||0), unit:'kcal'},
+    {name:'Protein', val:(+(food.prot||0)).toFixed(1), unit:'g'},
+    {name:'Fat',     val:(+(food.fat||0)).toFixed(1), unit:'g'},
+    {name:'Carbs',   val:(+(food.cho||0)).toFixed(1), unit:'g'},
+  ];
+  document.getElementById('macroGrid').innerHTML = macros.map(m => `<div class="macro-strip-cell">
+    <div class="macro-strip-name">${m.name}</div>
+    <div><span class="macro-strip-val">${m.val}</span> <span class="macro-strip-unit">${m.unit}</span></div>
+    <div class="macro-goal">per 100 g</div>
+  </div>`).join('');
+
+  document.getElementById('ofWhichGrid').innerHTML = `
+    <div class="ofwhich-cell"><span class="ofwhich-name">of which <strong>sugars</strong></span><span class="ofwhich-val">${(+(food.sugar||0)).toFixed(1)} <span>g</span></span></div>
+    <div class="ofwhich-cell"><span class="ofwhich-name">of which <strong>saturated</strong></span><span class="ofwhich-val">${(+(food.sfa||0)).toFixed(1)} <span>g</span></span></div>`;
+
+  document.getElementById('mineralBody').innerHTML = ['ca','fe','zn','na','k','p','mg','iod'].map(k => microRow(k, food[k]||0)).join('');
+  document.getElementById('vitaminBody').innerHTML = ['vita','vitd','vitc','fol','b12','b1','b2','nia'].map(k => microRow(k, food[k]||0)).join('');
+  document.getElementById('fattyBody').innerHTML  = ['sfa','mufa','pufa'].map(k => microRow(k, food[k]||0)).join('');
 }
 
 function closeDetail() {
@@ -4212,6 +4272,12 @@ function handleLogSearch() {
     return;
   }
 
+  // Recipes first — the dishes she builds meals from (picking one drops in a 1-serve slot)
+  const recEntries = (typeof recipeBank === 'function' ? recipeBank() : [])
+    .filter(r => r.name.toLowerCase().includes(q))
+    .slice(0, 12)
+    .map(r => { const ps = (r._cache && r._cache.perServe) || {}; return { _recipe: true, id: r.id, name: r.name, db: 'recipe', kcal: ps.kcal || 0 }; });
+
   // Search local DBs
   let results = [];
   if (activeDBs.has('ifct'))   results.push(...IFCT.filter(f => f.name.toLowerCase().includes(q)));
@@ -4219,18 +4285,24 @@ function handleLogSearch() {
   if (activeDBs.has('ausnut')) results.push(...AUSNUT.filter(f => f.name.toLowerCase().includes(q)));
   if (activeDBs.has('custom')) results.push(...customFoods.filter(f => f.name.toLowerCase().includes(q)));
 
-  window._logSearchResults = results.slice(0, 40);
+  const combined = [...recEntries, ...results].slice(0, 40);
+  window._logSearchResults = combined;
 
-  if (results.length === 0) {
-    resultsEl.innerHTML = '<div style="padding:12px;font-size:12px;color:var(--text3);">No results found</div>';
+  if (combined.length === 0) {
+    resultsEl.innerHTML = '<div style="padding:12px;font-size:12px;color:var(--text3);">No foods or recipes found</div>';
   } else {
-    resultsEl.innerHTML = results.slice(0, 40).map((f, i) => `
-      <div class="log-result-item" onclick="selectLogFood(${i})">
-        <span class="db-tag tag-${f.db}" style="font-size:8px;flex-shrink:0;">${f.db.toUpperCase()}</span>
-        <span style="flex:1;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${f.name}</span>
-        <span style="font-family:var(--font-num);font-size:10px;color:var(--text3);flex-shrink:0;">${Math.round(f.kcal)}kcal</span>
-      </div>
-    `).join('');
+    resultsEl.innerHTML = combined.map((f, i) => f._recipe
+      ? `<div class="log-result-item" onclick="selectLogFood(${i})">
+          <span class="db-tag" style="font-size:8px;flex-shrink:0;background:var(--accent-light);color:var(--accent);">RECIPE</span>
+          <span style="flex:1;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">🍽️ ${f.name}</span>
+          <span style="font-family:var(--font-num);font-size:10px;color:var(--text3);flex-shrink:0;">${Math.round(f.kcal)} kcal/serve</span>
+        </div>`
+      : `<div class="log-result-item" onclick="selectLogFood(${i})">
+          <span class="db-tag tag-${f.db}" style="font-size:8px;flex-shrink:0;">${f.db.toUpperCase()}</span>
+          <span style="flex:1;font-size:12px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">${f.name}</span>
+          <span style="font-family:var(--font-num);font-size:10px;color:var(--text3);flex-shrink:0;">${Math.round(f.kcal)}kcal</span>
+        </div>`
+    ).join('');
   }
   resultsEl.style.display = 'block';
 
@@ -4283,8 +4355,22 @@ function appendLogUSDA(foods) {
 }
 
 function selectLogFood(i) {
-  const food = (window._logSearchResults||[])[i];
-  if (!food) return;
+  const entry = (window._logSearchResults||[])[i];
+  if (!entry) return;
+  // Recipe pick → drop a 1-serve slot straight into the selected meal (click it to change servings)
+  if (entry._recipe) {
+    const rec = recipeById(entry.id);
+    if (!rec) { showToast('Recipe not found'); return; }
+    const meal = document.getElementById('logMealSelect').value;
+    if (!mealLog[meal]) mealLog[meal] = [];
+    mealLog[meal].push(recipeSlotItem(rec, 1));
+    renderMealLog(); updateAnalysis();
+    showToast(`Added ${rec.name} to ${MEAL_NAMES[meal]} — click it to change servings`);
+    document.getElementById('logSearchInput').value = '';
+    document.getElementById('logSearchResults').style.display = 'none';
+    return;
+  }
+  const food = entry;
   logSelectedFood = food;
   document.getElementById('logPortionFoodName').textContent = food.name;
   document.getElementById('logPortionBar').style.display = 'block';
@@ -7232,6 +7318,8 @@ function computeTotals(items) {
 }
 
 function updateAnalysis(label=null) {
+  // In Food Search the side panel is a single-food inspector — don't overwrite it with plan totals.
+  if (panelMode === 'inspect' && !label) return;
   let allItems;
   let scopeNote = '';
   if (!label && analysisScope === 'plan' && currentPlan && currentPlan.days.length > 1) {
