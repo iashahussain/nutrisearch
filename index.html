@@ -1029,7 +1029,20 @@
   .comp-group-head {
     font-size: 9.5px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.6px;
     padding: 6px 10px 3px; background: var(--accent-light); border-top: 1px solid var(--border);
+    display: flex; align-items: center; justify-content: space-between; gap: 6px;
   }
+  .comp-group-head.armed { box-shadow: inset 3px 0 0 var(--accent); }
+  .slot-add {
+    font-size: 9px; font-weight: 600; color: var(--accent); background: #fff; border: 1px solid var(--accent);
+    border-radius: 10px; padding: 1px 7px; cursor: pointer; min-height: 0; white-space: nowrap;
+  }
+  .slot-add:hover { background: var(--accent); color: #fff; }
+  .slot-empty { font-size: 10px; color: var(--text3); font-style: italic; padding: 4px 12px; cursor: pointer; border-bottom: 1px solid var(--border); }
+  .slot-empty:hover { background: var(--surface2); }
+  /* Menu-template grid (cycle): meal · component row labels */
+  .pg-slot-label { font-size: 10px; color: var(--text2); padding: 6px 8px; border-bottom: 1px solid var(--border); background: var(--surface); line-height: 1.25; }
+  .pg-slot-meal { font-size: 8px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.4px; }
+  .pg-cell.armed { outline: 2px solid var(--accent); outline-offset: -2px; background: var(--accent-light); }
   .choice-badge {
     display: inline-block; min-width: 15px; text-align: center; font-family: var(--font-num); font-size: 9px; font-weight: 700;
     color: #fff; background: var(--accent2); border-radius: 4px; padding: 0 4px; margin-right: 5px;
@@ -1297,7 +1310,7 @@
               <option value="dinner">Dinner</option>
               <option value="evening_snack">Supper</option>
             </select>
-            <select class="meal-select" id="logComponentSelect" style="min-width:110px;font-size:11px;display:none;" title="Menu component this goes under (Choice 1/2 …)"></select>
+            <span id="armChip" style="display:none;font-size:10.5px;background:var(--accent-light);color:var(--accent);padding:3px 8px;border-radius:12px;white-space:nowrap;"></span>
             <button class="add-btn" onclick="addFromLogSearch()" style="white-space:nowrap;">+ Add</button>
             <button class="preset-btn" style="border-style:dashed;white-space:nowrap;" onclick="promptAddMeasure('log')">+ measure</button>
           </div>
@@ -4406,25 +4419,31 @@ function onLogPortionChange() {
   el.textContent = unit !== 'g' ? `≈ ${grams.toFixed(1)}g` : '';
 }
 
-// Cycle mode: keep the component dropdown in sync with the chosen meal period.
-function refreshComponentSelect(){
-  const sel = document.getElementById('logComponentSelect');
-  if (!sel) return;
-  if (!isCycle()) { sel.style.display = 'none'; return; }
-  const meal = document.getElementById('logMealSelect').value;
-  const comps = componentsForPeriod(meal);
-  const prev = sel.value;
-  sel.innerHTML = comps.map(c => `<option value="${c.key}">${c.label}</option>`).join('');
-  if (comps.some(c => c.key === prev)) sel.value = prev;
-  else if (comps.some(c => c.key === 'main')) sel.value = 'main';
-  sel.style.display = comps.length ? '' : 'none';
-  activeComponent = sel.value || null;
+// Cycle mode: the add flow targets a specific (meal, component) slot she clicked ("armed").
+// A chip near the search shows what's being filled; picking a food tags it with that slot.
+function armSlot(dayIdx, meal, compKey){
+  if (dayIdx != null && dayIdx !== currentDayIdx) switchPlanDay(dayIdx);
+  armedMeal = meal; activeComponent = compKey; highlightMeal = meal;
+  const sel = document.getElementById('logMealSelect'); if (sel) sel.value = meal;
+  if (!dayEditorOpen) toggleDayEditor();
+  updateArmChip();
+  renderMealLog(); renderPlanGrid();
+  const si = document.getElementById('logSearchInput'); if (si) si.focus();
 }
-function onLogMealChange(){ refreshComponentSelect(); }
+function clearArm(){ armedMeal = null; activeComponent = null; updateArmChip(); if (isCycle()) { renderMealLog(); renderPlanGrid(); } }
+function updateArmChip(){
+  const chip = document.getElementById('armChip'); if (!chip) return;
+  if (isCycle() && armedMeal && activeComponent) {
+    chip.style.display = '';
+    chip.innerHTML = `→ ${MEAL_NAMES[armedMeal]} · <b>${componentLabel(activeComponent)}</b> <span style="opacity:.6;cursor:pointer;" onclick="clearArm()">✕</span>`;
+  } else chip.style.display = 'none';
+}
+function refreshComponentSelect(){ updateArmChip(); }   // kept: called by switchPlanDay/setPlannerMode
+function onLogMealChange(){ if (armedMeal && armedMeal !== document.getElementById('logMealSelect').value) clearArm(); }
 function currentAddComponent(){
   if (!isCycle()) return undefined;
-  const sel = document.getElementById('logComponentSelect');
-  return (sel && sel.value) || activeComponent || 'main';
+  const meal = document.getElementById('logMealSelect').value;
+  return (armedMeal === meal) ? (activeComponent || undefined) : undefined;
 }
 
 function setLogPreset(amt, unit) {
@@ -4592,7 +4611,8 @@ function renderMealLog() {
   // ── Meal sections (placeholders for empty selected periods)
   const sections = order.map(meal => {
     const items = mealLog[meal] || [];
-    if (!items.length) {
+    // Cycles always render their component template (even empty); plans/records show a simple placeholder.
+    if (!items.length && !isCycle()) {
       return `
       <div class="meal-section ${meal === highlightMeal ? 'highlighted-meal' : ''}" id="mealsec-${meal}">
         <div class="meal-section-header" style="padding:8px 10px 6px;margin-bottom:0;cursor:pointer;" onclick="planGridCellClick(currentDayIdx, '${meal}')">
@@ -4640,16 +4660,26 @@ function renderMealLog() {
 
     let rows;
     if (isCycle()) {
-      // Group by menu component; items sharing a component are Choice 1 / 2 / …
+      // Template-driven: show EVERY component slot for this meal (filled or empty placeholder).
       const withIdx = items.map((item, idx) => ({ item, idx }));
-      const order = MENU_COMPONENT_ORDER.concat(['__other']);
-      rows = order.map(ckey => {
-        const g = withIdx.filter(x => (x.item.component || '__other') === ckey);
-        if (!g.length) return '';
-        const label = ckey === '__other' ? 'Uncategorised' : componentLabel(ckey);
-        const head = `<div class="comp-group-head">${label}${g.length > 1 ? ` · ${g.length} choices` : ''}</div>`;
-        return head + g.map((x, ci) => rowHTML(x.item, x.idx, g.length > 1 ? ci + 1 : 0)).join('');
+      const template = MEAL_TEMPLATE[meal] || [];
+      const extras = [...new Set(withIdx.map(x => x.item.component).filter(c => c && !template.includes(c)))];
+      const slots = template.concat(extras);
+      const armed = ck => (armedMeal === meal && activeComponent === ck) ? ' armed' : '';
+      rows = slots.map(ckey => {
+        const g = withIdx.filter(x => (x.item.component || null) === ckey);
+        const addBtn = `<button class="slot-add" onclick="event.stopPropagation();armSlot(${currentDayIdx==null?'null':currentDayIdx}, '${meal}', '${ckey}')" title="Add a choice to ${componentLabel(ckey)}">＋ choice</button>`;
+        const head = `<div class="comp-group-head${armed(ckey)}"><span>${componentLabel(ckey)}${g.length > 1 ? ` · ${g.length} choices` : ''}</span>${addBtn}</div>`;
+        const body = g.length
+          ? g.map((x, ci) => rowHTML(x.item, x.idx, g.length > 1 ? ci + 1 : 0)).join('')
+          : `<div class="slot-empty" onclick="armSlot(${currentDayIdx==null?'null':currentDayIdx}, '${meal}', '${ckey}')">— empty — click ＋ choice, then search above</div>`;
+        return head + body;
       }).join('');
+      // any items with an unknown/blank component
+      const orphan = withIdx.filter(x => !x.item.component);
+      if (orphan.length) {
+        rows += `<div class="comp-group-head">Uncategorised</div>` + orphan.map(x => rowHTML(x.item, x.idx, 0)).join('');
+      }
     } else {
       rows = items.map((item, idx) => rowHTML(item, idx, 0)).join('');
     }
@@ -5347,30 +5377,32 @@ const ALL_PERIODS = ['breakfast','morning_snack','lunch','afternoon_snack','dinn
 let highlightMeal = null;      // meal focused from a grid cell click
 let dayEditorOpen = true;
 
-// ── Menu components (hospital food-service): categories within a meal. Cycle items
-// carry `item.component`; items sharing a component in a meal are its Choice 1 / 2 / …
+// ── Menu components (hospital food-service): each meal is a TEMPLATE of component
+// slots (soup, main, hot protein …), shown as placeholder rows whether filled or not.
+// Cycle items carry `item.component`; items sharing a slot are its Choice 1 / 2 / …
 // Plans & food records ignore components entirely (they stay flat additive item lists).
-const MENU_COMPONENTS = [
-  { key:'breakfast_item', label:'Breakfast item', periods:['breakfast'] },
-  { key:'soup',        label:'Soup',            periods:['lunch','dinner'] },
-  { key:'main',        label:'Main',            periods:['lunch','dinner'] },
-  { key:'starch_side', label:'Starch side',     periods:['lunch','dinner'] },
-  { key:'veg_side',    label:'Vegetable side',  periods:['lunch','dinner'] },
-  { key:'sandwich',    label:'Sandwich / wrap', periods:['lunch','morning_snack','afternoon_snack'] },
-  { key:'bread',       label:'Bread',           periods:['breakfast','lunch','dinner'] },
-  { key:'spreads',     label:'Spreads',         periods:['breakfast'] },
-  { key:'fruit',       label:'Fruit',           periods:['breakfast','lunch','dinner','morning_snack','afternoon_snack','evening_snack'] },
-  { key:'dessert',     label:'Dessert',         periods:['lunch','dinner'] },
-  { key:'snack',       label:'Snack',           periods:['morning_snack','afternoon_snack','evening_snack'] },
-  { key:'hot_bev',     label:'Hot beverage',    periods:ALL_PERIODS.slice() },
-  { key:'cold_bev',    label:'Cold beverage',   periods:ALL_PERIODS.slice() },
-];
-const MENU_COMPONENT_ORDER = MENU_COMPONENTS.map(c => c.key);
-function componentsForPeriod(period){ return MENU_COMPONENTS.filter(c => c.periods.includes(period)); }
-function componentLabel(key){ const c = MENU_COMPONENTS.find(x => x.key === key); return c ? c.label : 'Other'; }
+const COMPONENT_LABELS = {
+  hot_protein:'Hot protein', hot_cereal:'Hot cereal', cold_protein:'Cold protein',
+  cold_cereal:'Cold cereal (w/ milk)', bread:'Bread', spread:'Spread', fruit:'Fruit',
+  soup:'Soup', main:'Main', starch_side:'Starch side', veg_side:'Vegetable side',
+  dessert:'Dessert', snack:'Snack', snack_fruit:'Snack / fruit',
+  hot_bev:'Hot beverage', cold_bev:'Cold beverage',
+};
+// Ordered component slots per meal period (matches Iasha's TTH menu-management layout).
+const MEAL_TEMPLATE = {
+  breakfast:      ['hot_protein','hot_cereal','cold_protein','cold_cereal','bread','spread','fruit','hot_bev','cold_bev'],
+  morning_snack:  ['snack_fruit','hot_bev'],
+  lunch:          ['soup','main','starch_side','veg_side','dessert','hot_bev'],
+  afternoon_snack:['snack_fruit','hot_bev'],
+  dinner:         ['soup','main','starch_side','veg_side','dessert','hot_bev'],
+  evening_snack:  ['snack','hot_bev'],
+};
+function componentsForPeriod(period){ return (MEAL_TEMPLATE[period] || []).map(k => ({ key:k, label:COMPONENT_LABELS[k]||k })); }
+function componentLabel(key){ return COMPONENT_LABELS[key] || 'Other'; }
 function isCycle(){ return !!(currentPlan && currentPlan._entity === 'cycle'); }
-// The component the cycle day-editor add flow will tag new items with.
+// The (meal, component) the cycle add flow is currently targeting.
 let activeComponent = null;
+let armedMeal = null;
 
 function ensurePlanDefaults(plan){
   if (!plan) return plan;
@@ -5426,7 +5458,8 @@ function renderPlanGrid(){
   const days = currentPlan.days;
   const tgtKcal = parseFloat(document.getElementById('tgt_kcal')?.value) || null;
 
-  const cols = `86px repeat(${days.length}, minmax(118px, 1fr)) auto`;
+  const labelW = isCycle() ? '140px' : '86px';
+  const cols = `${labelW} repeat(${days.length}, minmax(118px, 1fr)) auto`;
   let html = `<div class="plan-grid" style="grid-template-columns:${cols}">`;
 
   // header row
@@ -5461,38 +5494,44 @@ function renderPlanGrid(){
   });
   html += `<button class="pg-addday" onclick="addPlanDay()" title="Add a day">＋ day</button>`;
 
-  // one row per meal period
-  periods.forEach(meal => {
-    const unchecked = !currentPlan.mealPeriods.includes(meal);
-    html += `<div class="pg-period-label">${MEAL_NAMES[meal]}${unchecked ? '<span class="pg-warn" title="Meal not in plan’s selected periods but still has foods"></span>' : ''}</div>`;
-    days.forEach((d, i) => {
-      const items = d.meals[meal] || [];
-      const kcal = Math.round(computeTotals(items).kcal);
-      let body;
-      if (isCycle()) {
-        // group by component; each component shows its choices "A / B"
-        const order = MENU_COMPONENT_ORDER.concat(['__other']);
-        const lines = order.map(ckey => {
-          const g = items.filter(it => (it.component || '__other') === ckey);
-          if (!g.length) return '';
+  if (isCycle()) {
+    // Menu-template grid: one row per (meal · component slot), columns = days. Click a cell to fill it.
+    periods.forEach(meal => {
+      const template = MEAL_TEMPLATE[meal] || [];
+      const extras = [...new Set(days.flatMap(d => (d.meals[meal]||[]).map(it => it.component).filter(c => c && !template.includes(c))))];
+      const slots = template.concat(extras);
+      slots.forEach(ckey => {
+        html += `<div class="pg-slot-label"><span class="pg-slot-meal">${MEAL_NAMES[meal]}</span><br>${componentLabel(ckey)}</div>`;
+        days.forEach((d, i) => {
+          const g = (d.meals[meal]||[]).filter(it => (it.component||null) === ckey);
           const names = g.map(it => it.food.name).join(' / ');
-          const lbl = ckey === '__other' ? '' : `<span class="pg-comp-lbl">${componentLabel(ckey)}:</span> `;
-          return `<span class="pg-item" title="${names.replace(/"/g,'&quot;')}">${lbl}${names}</span>`;
-        }).filter(Boolean);
-        body = lines.length ? lines.join('') : '<span class="pg-empty">＋ add</span>';
-      } else {
+          const body = g.length
+            ? `<span class="pg-item" title="${names.replace(/"/g,'&quot;')}">${names}</span>`
+            : '<span class="pg-empty">＋</span>';
+          const armed = (armedMeal === meal && activeComponent === ckey && i === currentDayIdx) ? 'armed' : '';
+          html += `<div class="pg-cell ${i===currentDayIdx?'selected-day':''} ${armed}" onclick="armSlot(${i}, '${meal}', '${ckey}')">${body}</div>`;
+        });
+        html += `<div></div>`;
+      });
+    });
+  } else {
+    // one row per meal period (plans / records)
+    periods.forEach(meal => {
+      const unchecked = !currentPlan.mealPeriods.includes(meal);
+      html += `<div class="pg-period-label">${MEAL_NAMES[meal]}${unchecked ? '<span class="pg-warn" title="Meal not in plan’s selected periods but still has foods"></span>' : ''}</div>`;
+      days.forEach((d, i) => {
+        const items = d.meals[meal] || [];
+        const kcal = Math.round(computeTotals(items).kcal);
         const shown = items.slice(0, 3).map(it =>
           `<span class="pg-item" title="${(it.food.name||'').replace(/"/g,'&quot;')}">${it.food.name}</span>`).join('');
         const more = items.length > 3 ? `<span class="pg-item-more">+${items.length - 3} more</span>` : '';
-        body = items.length ? shown + more + `<span class="pg-cell-kcal">${kcal} kcal</span>` : '<span class="pg-empty">＋ add</span>';
-      }
-      const hl = (i === currentDayIdx && meal === highlightMeal) ? 'highlighted' : '';
-      html += `<div class="pg-cell ${i===currentDayIdx?'selected-day':''} ${hl}" onclick="planGridCellClick(${i}, '${meal}')">
-        ${body}
-      </div>`;
+        const body = items.length ? shown + more + `<span class="pg-cell-kcal">${kcal} kcal</span>` : '<span class="pg-empty">＋ add</span>';
+        const hl = (i === currentDayIdx && meal === highlightMeal) ? 'highlighted' : '';
+        html += `<div class="pg-cell ${i===currentDayIdx?'selected-day':''} ${hl}" onclick="planGridCellClick(${i}, '${meal}')">${body}</div>`;
+      });
+      html += `<div></div>`;   // filler under the add-day column
     });
-    html += `<div></div>`;   // filler under the add-day column
-  });
+  }
 
   html += `</div>`;
   el.innerHTML = html;
