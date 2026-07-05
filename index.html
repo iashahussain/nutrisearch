@@ -415,7 +415,7 @@
     box-shadow: 0 4px 14px rgba(0,0,0,0.28);
     pointer-events: none;
   }
-  .log-item-portion { font-family: var(--font-num); font-size: 10px; color: var(--text3); text-align: right; white-space: nowrap; }
+  .log-item-portion { font-family: var(--font-num); font-size: 10px; color: var(--text3); text-align: right; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; padding-right: 8px; }
   .log-item-kcal { font-family: var(--font-num); font-size: 11px; color: var(--accent); font-weight: 600; text-align: right; }
   .log-del {
     background: none; border: none; color: var(--text3);
@@ -628,6 +628,25 @@
   /* ── NUTRIENT SUMMARY ── */
   .summary-area { flex: 1; overflow-y: auto; }
 
+  /* ── ANALYSIS HEADER — sticky, always says what is being analysed ── */
+  .analysis-head {
+    position: sticky; top: 0; z-index: 3;
+    display: flex; align-items: center; justify-content: space-between; gap: 8px;
+    padding: 8px 12px 7px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+  }
+  .analysis-head-title { font-family: var(--font-display); font-size: 14px; font-weight: 600; color: var(--text); line-height: 1.15; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .analysis-head-sub { font-size: 9.5px; color: var(--text2); font-family: var(--font-num); margin-top: 1px; }
+  .scope-seg { display: flex; flex-shrink: 0; background: var(--surface2); border: 1px solid var(--border); border-radius: 999px; padding: 2px; gap: 2px; }
+  .seg-btn {
+    border: none; background: none; cursor: pointer;
+    font-family: var(--font-body); font-size: 9.5px; font-weight: 600; color: var(--text2);
+    padding: 3px 9px; border-radius: 999px; transition: all 0.15s; white-space: nowrap;
+  }
+  .seg-btn:hover { color: var(--text); }
+  .seg-btn.active { background: var(--accent); color: #fff; }
+
   /* Macro strip replaces 2x2 grid */
   .macro-strip {
     display: grid;
@@ -719,14 +738,17 @@
   .micro-bar-bg { height: 6px; background: var(--surface2); border-radius: 3px; overflow: hidden; }
   .micro-bar-fill { height: 100%; border-radius: 3px; transition: width 0.3s; }
 
-  /* ── FOOD DETAIL PANEL ── */
+  /* ── FOOD DETAIL PANEL — a lookup card, visually apart from the day analysis ── */
   .food-detail {
-    background: var(--surface);
-    border-bottom: 1px solid var(--border);
-    padding: 10px 12px;
-    margin-bottom: 0;
+    background: var(--accent-light);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--accent);
+    border-radius: var(--radius-sm);
+    margin: 8px 10px;
+    padding: 8px 10px 10px;
     display: none;
   }
+  .food-detail-eyebrow { font-size: 8px; font-weight: 700; color: var(--accent); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 4px; }
   .food-detail.visible { display: block; }
   .food-detail-header { display: flex; align-items: flex-start; justify-content: space-between; margin-bottom: 6px; }
   .food-detail-name { font-family: var(--font-display); font-size: 13px; line-height: 1.2; }
@@ -1557,8 +1579,6 @@ Pour in coconut milk and simmer 10 minutes." style="width:100%;resize:vertical;f
       <div class="targets-header-row">
         <span style="font-size:9px;font-weight:600;color:var(--text2);text-transform:uppercase;letter-spacing:0.8px;">Patient Targets / day</span>
         <div style="display:flex;gap:5px;">
-          <button class="btn-secondary" id="scopeDayBtn" style="font-size:9px;padding:2px 7px;" onclick="setAnalysisScope('day')" title="Analyse the currently open day">This day</button>
-          <button class="btn-secondary" id="scopePlanBtn" style="font-size:9px;padding:2px 7px;" onclick="setAnalysisScope('plan')" title="Average across all days of the plan">Plan avg</button>
           <button class="btn-secondary" style="font-size:9px;padding:2px 7px;" onclick="clearTargets()">Clear</button>
           <button class="btn-secondary" onclick="printPlanHandout()" style="font-size:9px;padding:2px 7px;" title="Print patient handout">🖨</button>
         </div>
@@ -1589,6 +1609,7 @@ Pour in coconut milk and simmer 10 minutes." style="width:100%;resize:vertical;f
 
     <!-- FOOD DETAIL (compact) -->
     <div class="food-detail" id="foodDetail">
+      <div class="food-detail-eyebrow">Food lookup · per 100 g</div>
       <div class="food-detail-header">
         <div style="min-width:0;">
           <div class="food-detail-name" id="detailName" style="font-size:14px;">—</div>
@@ -1612,8 +1633,17 @@ Pour in coconut milk and simmer 10 minutes." style="width:100%;resize:vertical;f
       <!-- ANALYSIS -->
       <div id="macroSummary" style="display:none;">
 
-        <!-- Status line -->
-        <div id="rightSub" style="font-size:10px;color:var(--text2);padding:6px 12px 0;"></div>
+        <!-- Sticky header: what is being analysed + scope toggle -->
+        <div class="analysis-head">
+          <div style="min-width:0;">
+            <div class="analysis-head-title" id="analysisTitle">This day</div>
+            <div class="analysis-head-sub" id="rightSub"></div>
+          </div>
+          <div class="scope-seg">
+            <button class="seg-btn" id="scopeDayBtn" onclick="setAnalysisScope('day')" title="Analyse the currently open day">This day</button>
+            <button class="seg-btn" id="scopePlanBtn" onclick="setAnalysisScope('plan')" title="Average across all days">Plan avg</button>
+          </div>
+        </div>
 
         <!-- MACRO STRIP — 4 columns inline -->
         <div class="macro-strip" id="macroGrid"></div>
@@ -1631,9 +1661,6 @@ Pour in coconut milk and simmer 10 minutes." style="width:100%;resize:vertical;f
               <thead><tr>
                 <th>Nutrient</th>
                 <th style="text-align:right">Intake</th>
-                <th style="text-align:right">Target</th>
-                <th style="text-align:right">%</th>
-                <th style="width:60px">Bar</th>
               </tr></thead>
               <tbody id="mineralBody"></tbody>
             </table>
@@ -1649,9 +1676,6 @@ Pour in coconut milk and simmer 10 minutes." style="width:100%;resize:vertical;f
               <thead><tr>
                 <th>Nutrient</th>
                 <th style="text-align:right">Intake</th>
-                <th style="text-align:right">Target</th>
-                <th style="text-align:right">%</th>
-                <th style="width:60px">Bar</th>
               </tr></thead>
               <tbody id="vitaminBody"></tbody>
             </table>
@@ -1667,9 +1691,6 @@ Pour in coconut milk and simmer 10 minutes." style="width:100%;resize:vertical;f
               <thead><tr>
                 <th>Nutrient</th>
                 <th style="text-align:right">Intake</th>
-                <th style="text-align:right">Target</th>
-                <th style="text-align:right">%</th>
-                <th style="width:60px">Bar</th>
               </tr></thead>
               <tbody id="fattyBody"></tbody>
             </table>
@@ -4439,7 +4460,7 @@ function renderMealLog() {
   const gridCols = [
     '28px',                      // db tag
     '1fr',                       // food name
-    '60px',                      // portion
+    '86px',                      // portion
     ...activeNutrients.map(() => NUTR_COL_W),
     '52px',                      // kcal
     '22px',                      // delete
@@ -5403,9 +5424,8 @@ function initPlans(){
 
 function setAnalysisScope(scope){
   analysisScope = scope;
-  const style = (btn, on) => { if (!btn) return; btn.style.background = on ? 'var(--accent)' : ''; btn.style.color = on ? '#fff' : ''; };
-  style(document.getElementById('scopeDayBtn'), scope==='day');
-  style(document.getElementById('scopePlanBtn'), scope==='plan');
+  document.getElementById('scopeDayBtn')?.classList.toggle('active', scope==='day');
+  document.getElementById('scopePlanBtn')?.classList.toggle('active', scope==='plan');
   updateAnalysis();
 }
 
@@ -6284,7 +6304,7 @@ function renderRecipeItems() {
 
   const NUTR_COL_W = '52px';
   const gridCols = [
-    '28px', '1fr', (servings>1?'82px':'60px'),
+    '28px', '1fr', (servings>1?'92px':'86px'),
     ...activeNutrients.map(() => NUTR_COL_W),
     '52px', '22px',
   ].join(' ');
@@ -7108,11 +7128,27 @@ function updateAnalysis(label=null) {
     fibre:parseFloat(document.getElementById('tgt_fibre').value)||null,
   };
 
-  // Update right header
+  // Update analysis header: what is being analysed + scope toggle
   const totalKcal = Math.round(totals.kcal);
-  document.getElementById('rightSub').textContent = label
-    ? `${label} — ${totalKcal} kcal total`
-    : `${allItems.length} food${allItems.length!==1?'s':''} logged · ${totalKcal} kcal${scopeNote || ' total'}`;
+  const titleEl = document.getElementById('analysisTitle');
+  const segEl = document.querySelector('.scope-seg');
+  const entityWord = plannerMode === 'record' ? 'Record' : plannerMode === 'cycle' ? 'Cycle' : 'Plan';
+  const planBtn = document.getElementById('scopePlanBtn');
+  if (planBtn) planBtn.textContent = entityWord + ' avg';
+  if (label) {
+    // Recipe builder analysis — scope toggle doesn't apply
+    if (titleEl) titleEl.textContent = label;
+    if (segEl) segEl.style.display = 'none';
+    document.getElementById('rightSub').textContent = `${totalKcal} kcal per serve`;
+  } else {
+    if (segEl) segEl.style.display = '';
+    const planScoped = analysisScope === 'plan' && currentPlan && currentPlan.days.length > 1;
+    if (titleEl) titleEl.textContent = planScoped
+      ? `${entityWord} average · ${currentPlan.days.length} days`
+      : (currentPlan?.days?.[currentDayIdx]?.label || 'This day');
+    document.getElementById('rightSub').textContent =
+      `${allItems.length} food${allItems.length!==1?'s':''} · ${totalKcal} kcal${planScoped ? ' / day' : ''}`;
+  }
 
   // Macro cards
   const macros = [
@@ -7179,24 +7215,16 @@ function microRow(key, val) {
   if (!meta) return '';
   const disp = val < 10 ? val.toFixed(2) : val.toFixed(1);
   const tgt = meta.default;
-  let pctHtml = `<span class="pct-pill pct-none">—</span>`;
-  let barFill = '';
+  let pctHtml = '';
   if (tgt && val > 0) {
     const pct = (val/tgt)*100;
     const cls = pct>110 ? 'pct-over' : pct<80 ? 'pct-low' : 'pct-ok';
-    pctHtml = `<span class="pct-pill ${cls}">${pct.toFixed(0)}%</span>`;
-    const fillCls = pct>110 ? 'bar-over' : pct<80 ? 'bar-low' : 'bar-ok';
-    barFill = `<div class="micro-bar-fill ${fillCls}" style="width:${Math.min(pct,100)}%"></div>`;
-  } else if (val > 0) {
-    barFill = `<div class="micro-bar-fill bar-ok" style="width:30%"></div>`;
+    pctHtml = ` <span class="pct-pill ${cls}" title="of ${tgt} ${meta.unit} target">${pct.toFixed(0)}%</span>`;
   }
 
   return `<tr>
     <td class="micro-name">${meta.name}</td>
-    <td class="micro-val">${disp} ${meta.unit}</td>
-    <td class="micro-target-col">${tgt ? tgt+' '+meta.unit : '—'}</td>
-    <td class="micro-pct">${pctHtml}</td>
-    <td class="micro-bar-row"><div class="micro-bar-bg">${barFill}</div></td>
+    <td class="micro-val">${disp} ${meta.unit}${pctHtml}</td>
   </tr>`;
 }
 
