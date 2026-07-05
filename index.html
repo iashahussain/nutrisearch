@@ -4982,7 +4982,15 @@ function newBlankCycle(){
     days: [newBlankDay(1)] };
 }
 
-function dietCodes(){ return loadEntityIndex('ns_diet_codes'); }
+function dietCodes(){
+  let codes = loadEntityIndex('ns_diet_codes');
+  if (!codes.length) codes = DIET_CODE_SEEDS.slice();
+  // Append any newly-shipped seed codes missing from an older install (never overwrite her edits)
+  const have = new Set(codes.map(c => c.id));
+  const missing = DIET_CODE_SEEDS.filter(s => !have.has(s.id));
+  if (missing.length) { codes = codes.concat(missing); nsSave('ns_diet_codes', codes); }
+  return codes;
+}
 function currentDietCode(){
   if (!currentPlan || currentPlan._entity !== 'cycle') return null;
   return dietCodes().find(d => d.id === currentPlan.dietCodeId) || null;
@@ -4995,6 +5003,7 @@ function effectivePrefs(){
   if (dc) {
     (dc.requiredTags || []).forEach(t => { if (!p.dietTags.includes(t)) p.dietTags.push(t); });
     (dc.excludedAllergens || []).forEach(a => { if (!p.avoidAllergens.includes(a)) p.avoidAllergens.push(a); });
+    if (dc.textureMax != null) p.textureMax = dc.textureMax;
   }
   return p;
 }
@@ -5773,6 +5782,8 @@ function eligibleRecipes(p){
     const t = r.tags || blankTags();
     if (p.avoidAllergens.length && p.avoidAllergens.some(a => (t.allergens||[]).includes(a))) return false;
     if (p.iddsi != null && t.iddsi !== p.iddsi) return false;
+    // Texture/fluid diets: recipe must be at the diet's texture level or thinner (untagged = regular)
+    if (p.textureMax != null && (TEXTURE_RANK[t.texture || 'regular'] ?? 5) > p.textureMax) return false;
     for (const l of p.lifestyle) {
       const has = (t.lifestyle||[]).includes(l) || (l === 'vegetarian' && (t.lifestyle||[]).includes('vegan'));
       if (!has) return false;
@@ -7008,6 +7019,8 @@ function toggleEditorTag(group, key){
   if (!editorTags) editorTags = blankTags();
   if (group === 'iddsi') {
     editorTags.iddsi = editorTags.iddsi === key ? null : key;
+  } else if (group === 'texture') {
+    editorTags.texture = editorTags.texture === key ? null : key;
   } else {
     const arr = editorTags[group];
     const i = arr.indexOf(key);
@@ -7026,6 +7039,7 @@ function renderRecipeTagChips(){
     row('Therapeutic diets', TAG_DIETS.map(([k,l]) => chip('diets', k, l, editorTags.diets.includes(k))).join('')) +
     row('Contains allergens', TAG_ALLERGENS.map(([k,l]) => chip('allergens', k, l, editorTags.allergens.includes(k))).join('')) +
     row('IDDSI texture', TAG_IDDSI.map(([k,l]) => chip('iddsi', k, l, editorTags.iddsi === k)).join('')) +
+    row('Texture / fluid class (for menu diet codes)', TEXTURE_LEVELS.map(([k,l]) => chip('texture', k, l, editorTags.texture === k)).join('')) +
     row('Lifestyle', TAG_LIFESTYLE.map(([k,l]) => chip('lifestyle', k, l, editorTags.lifestyle.includes(k))).join('')) +
     row('Cuisine', TAG_CUISINE.map(([k,l]) => chip('cuisine', k, l, editorTags.cuisine.includes(k))).join('')) +
     row('Suits meal periods', ALL_PERIODS.map(m => chip('mealPeriods', m, MEAL_NAMES[m], editorTags.mealPeriods.includes(m))).join(''));
@@ -7224,7 +7238,19 @@ const TAG_LIFESTYLE = [['vegetarian','Vegetarian'],['vegan','Vegan'],['halal','H
 const TAG_CUISINE   = [['maldivian','Maldivian'],['south-asian','South Asian'],['western','Western'],['east-asian','East Asian']];
 const TAG_IDDSI     = [[7,'IDDSI 7'],[6,'IDDSI 6 soft'],[5,'IDDSI 5 minced'],[4,'IDDSI 4 pureed']];
 
-function blankTags(){ return { diets:[], allergens:[], iddsi:null, lifestyle:[], cuisine:[], mealPeriods:[] }; }
+function blankTags(){ return { diets:[], allergens:[], iddsi:null, texture:null, lifestyle:[], cuisine:[], mealPeriods:[] }; }
+
+// Texture / fluid scale (thinnest → thickest). A diet allows recipes at its level or thinner.
+const TEXTURE_LEVELS = [
+  ['clear_fluid','Clear fluid'],
+  ['liquid','Full liquid'],
+  ['pureed','Pureed (IDDSI 4)'],
+  ['minced_moist','Minced & moist (IDDSI 5)'],
+  ['soft','Soft / bite-sized (IDDSI 6)'],
+  ['regular','Regular (IDDSI 7)'],
+];
+const TEXTURE_RANK = { clear_fluid:0, liquid:1, pureed:2, minced_moist:3, soft:4, regular:5 };
+function textureLabel(k){ const t = TEXTURE_LEVELS.find(x => x[0] === k); return t ? t[1] : k; }
 
 function slimRecipeItem(it){
   const f = it.food || {};
@@ -7374,7 +7400,15 @@ const DIET_CODE_SEEDS = [
   { id:'dc_renal',    code:'REN',  name:'Renal',              rules:{ k:{max:2500}, p:{max:1000}, na:{max:2300}, prot:{min:60} },            requiredTags:['renal'], excludedAllergens:[], notes:'Pre-dialysis defaults — adjust per patient' },
   { id:'dc_fodmap',   code:'LFM',  name:'Low FODMAP',         rules:{},                                                                      requiredTags:['low-fodmap'], excludedAllergens:[], notes:'' },
   { id:'dc_hehp',     code:'HEHP', name:'High energy high protein', rules:{ kcal:{min:2200}, prot:{min:100} },                               requiredTags:[], excludedAllergens:[], notes:'' },
-  { id:'dc_texture',  code:'TMD',  name:'Texture-modified',   rules:{},                                                                      requiredTags:[], excludedAllergens:[], notes:'Pair with an IDDSI level per patient' },
+  { id:'dc_paed',     code:'PAED', name:'Paediatric',         rules:{},                                                                      requiredTags:[], excludedAllergens:[], notes:'Use paediatric requirements & portion sizes — component standards differ from adult NQFS' },
+  { id:'dc_gilight',  code:'GIL',  name:'GI light (low residue/bland)', rules:{},                                                            requiredTags:[], excludedAllergens:[], notes:'Low fibre, low fat, non-spicy, non-gas-forming — tag suitable recipes' },
+  // ── Texture / fluid-modified diets: restrict which recipes are eligible (needs the recipe texture tag) ──
+  { id:'dc_clearfluid', code:'CLF', name:'Clear fluid',       rules:{}, textureMax:0, requiredTags:[], excludedAllergens:[], notes:'Clear fluids only — strained, no pulp' },
+  { id:'dc_fullliquid', code:'FLD', name:'Full liquid',       rules:{}, textureMax:1, requiredTags:[], excludedAllergens:[], notes:'Strain all soups, no fruit pulp, strain cereals' },
+  { id:'dc_pureed',   code:'PUR',  name:'Pureed (IDDSI 4)',   rules:{}, textureMax:2, requiredTags:[], excludedAllergens:[], notes:'Smooth, no lumps' },
+  { id:'dc_minced',   code:'MM',   name:'Minced & moist (IDDSI 5)', rules:{}, textureMax:3, requiredTags:[], excludedAllergens:[], notes:'Soft, small lumps, moist' },
+  { id:'dc_soft',     code:'SFT',  name:'Soft / mechanical',  rules:{}, textureMax:4, requiredTags:[], excludedAllergens:[], notes:'No crust, cut small, well cooked, non-leafy, no deep frying' },
+  { id:'dc_texture',  code:'TMD',  name:'Texture-modified (generic)', rules:{},                                                             requiredTags:[], excludedAllergens:[], notes:'Prefer a specific texture code above' },
 ];
 
 // ════════════════════════════════════════════════
@@ -7522,6 +7556,7 @@ function renderLibrary(){
     const tagChips = [
       ...r.tags.diets.map(t => (TAG_DIETS.find(x=>x[0]===t)||[])[1]),
       ...r.tags.lifestyle.map(t => (TAG_LIFESTYLE.find(x=>x[0]===t)||[])[1]),
+      ...(r.tags.texture && r.tags.texture !== 'regular' ? [textureLabel(r.tags.texture)] : []),
       ...(r.tags.iddsi ? ['IDDSI ' + r.tags.iddsi] : []),
     ].filter(Boolean).slice(0,3);
     const allergenNote = r.tags.allergens.length
